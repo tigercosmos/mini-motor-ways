@@ -1,0 +1,13 @@
+{
+  "name": "Little Roads · 小城流動",
+  "short_name": "小城流動",
+  "description": "畫一條路，讓日常流動。原創城市道路規劃遊戲。",
+  "lang": "zh-Hant",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f5ee",
+  "theme_color": "#f7f5ee",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
