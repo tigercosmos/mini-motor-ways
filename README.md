@@ -32,7 +32,12 @@ Each home has two cars and one active driveway. Destinations request an availabl
 
 The town adds buildings as weeks pass. Saved progress and your best score stay in the current browser when local storage is available.
 
-Keyboard controls: Space pauses, R selects roads, E selects the eraser, G toggles the grid, and Command/Ctrl+Z undoes.
+Spread or pinch two fingers to zoom between 100% and 300%. Drag with two fingers to move the map.
+Select **移動** to pan with one finger. Select **鋪路** or **拆除** to edit again.
+The + and − buttons also change zoom. Tap the percentage to return to the full map.
+Lift all fingers after a two-finger gesture before you start a new road edit.
+
+Keyboard controls: Space pauses, R selects roads, E selects the eraser, H selects pan, G toggles the grid, 0 resets the view, and Command/Ctrl+Z undoes.
 
 On iPhone, open the deployed HTTPS address in Safari and choose **Share → Add to Home Screen**. HTTPS enables the offline cache after the first successful load.
 

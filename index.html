@@ -26,6 +26,7 @@
     <symbol id="i-bridge" viewBox="0 0 24 24"><path d="M3 4v16M21 4v16M1 16h22M3 6c4 10 14 10 18 0M8 12v4m8-4v4"/></symbol>
     <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M19 10c0 6-7 11-7 11S5 16 5 10a7 7 0 0 1 14 0Z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+    <symbol id="i-pan" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M8 7l4-4 4 4M8 17l4 4 4-4M7 8l-4 4 4 4M17 8l4 4-4 4"/></symbol>
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
   </defs></svg>
   <div class="app-shell">
@@ -72,7 +73,14 @@
         </div>
         <div class="map-container">
           <div class="map-top-label" aria-hidden="true"><span class="map-coordinate">35° N · 139° E</span><span class="map-north">N <span>↑</span></span></div>
-          <canvas id="game-canvas" tabindex="0" role="application" aria-label="城市地圖。拖曳連接同色住宅與目的地。空白鍵暫停遊戲，R 鋪路，E 拆除。"></canvas>
+          <canvas id="game-canvas" tabindex="0" role="application" aria-label="城市地圖。單指拖曳鋪路，連接同色住宅與目的地；雙指縮放或移動地圖，也可選取移動地圖工具後單指拖曳。右側按鈕可放大、縮小及重設視野。空白鍵暫停遊戲，R 鋪路，E 拆除。"></canvas>
+          <div class="camera-controls" role="group" aria-label="地圖視野控制">
+            <button id="zoom-in-btn" class="camera-button" type="button" aria-label="放大地圖" title="放大地圖"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button id="reset-view-btn" class="camera-button reset-view-button" type="button" aria-label="重設地圖視野" title="重設地圖視野"><span id="zoom-value">100%</span><span class="camera-caption">全覽</span></button>
+            <button id="zoom-out-btn" class="camera-button" type="button" aria-label="縮小地圖" title="縮小地圖"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+            <span class="camera-divider" aria-hidden="true"></span>
+            <button id="pan-btn" class="camera-button pan-button" type="button" aria-label="移動地圖" aria-pressed="false" title="移動地圖：單指拖曳"><svg aria-hidden="true"><use href="#i-pan"/></svg><span class="camera-caption">移動</span></button>
+          </div>
           <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
           <div class="map-bottom-label" aria-hidden="true"><span>RIVERSIDE</span><span>一座正在長大的小城</span></div>
         </div>
@@ -97,7 +105,7 @@
               <button id="speed-btn" class="tool-button speed-button" type="button" aria-label="切換遊戲速度" title="切換速度"><strong class="speed-value" data-speed>1×</strong><span>速度</span></button>
             </div>
           </div>
-          <p class="interaction-hint"><span class="hint-dot"></span> 從住宅拖曳到同色目的地，畫出第一條路。</p>
+          <p class="interaction-hint"><span class="hint-dot"></span> 單指鋪路 · 雙指縮放移動 · 選「移動」後可單指拖曳地圖</p>
         </div>
       </section>
     </main>

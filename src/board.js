@@ -28,10 +28,17 @@ export class Board {
     this.cell = 1;
     this.offsetX = 0;
     this.offsetY = 0;
+    this.zoom = 1;
+    this.baseCell = 1;
+    this.viewCenter = null;
+    this.pointers = new Map();
+    this.gesture = null;
+    this.blockEdit = false;
+    this.gestureCanceled = false;
     this.canvas.style.touchAction = 'none';
     this.canvas.style.userSelect = 'none';
     this.canvas.style.webkitUserSelect = 'none';
-    this.canvas.setAttribute('aria-label', '城市地圖。拖曳連接同色住宅與目的地，跨越河流會使用橋梁。');
+    this.canvas.setAttribute('aria-label', '城市地圖。單指拖曳鋪路，連接同色住宅與目的地。雙指縮放或移動地圖，也可選擇移動工具以單指拖曳。跨河會使用橋梁。');
     this.canvas.setAttribute('role', 'img');
     this.handlers = {
       pointerdown: (event) => this.onPointerDown(event),
@@ -49,19 +56,47 @@ export class Board {
   }
 
   setState(state) {
+    const changedDimensions = !this.state || this.state.cols !== state.cols || this.state.rows !== state.rows;
     this.state = state;
+    if (changedDimensions) {
+      this.cancelGesture();
+      this.zoom = 1;
+      this.viewCenter = { x: state.cols / 2, y: state.rows / 2 };
+    }
     this.layout();
+    this.notifyView();
   }
 
   setTool(tool) {
-    this.tool = tool === 'erase' ? 'erase' : 'road';
-    this.canvas.style.cursor = this.tool === 'erase' ? 'cell' : 'crosshair';
+    const next = ['erase', 'pan'].includes(tool) ? tool : 'road';
+    if (next !== this.tool) this.cancelGesture();
+    this.tool = next;
+    this.canvas.style.cursor = next === 'pan' ? 'grab' : next === 'erase' ? 'cell' : 'crosshair';
   }
 
   setGrid(visible) { this.grid = Boolean(visible); }
+  getView() { return { zoom: this.zoom }; }
+  notifyView() { this.callbacks.onViewChange?.(this.getView()); }
+
+  zoomBy(factor) {
+    if (!this.state || !Number.isFinite(factor) || factor <= 0) return;
+    this.cancelGesture();
+    this.zoom = Math.min(3, Math.max(1, this.zoom * factor));
+    this.layout();
+    this.notifyView();
+  }
+
+  resetView() {
+    this.cancelGesture();
+    this.zoom = 1;
+    if (this.state) this.viewCenter = { x: this.state.cols / 2, y: this.state.rows / 2 };
+    this.layout();
+    this.notifyView();
+  }
 
   resize() {
     const bounds = this.canvas.getBoundingClientRect();
+    if (bounds.width !== this.width || bounds.height !== this.height) this.cancelGesture();
     this.width = bounds.width;
     this.height = bounds.height;
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -73,17 +108,37 @@ export class Board {
   layout() {
     if (!this.state) return;
     const gutter = this.width < 500 ? 8 : 26;
-    this.cell = Math.min((this.width - gutter * 2) / this.state.cols, (this.height - gutter * 2) / this.state.rows);
-    this.cell = Math.max(1, this.cell);
-    this.offsetX = (this.width - this.state.cols * this.cell) / 2;
-    this.offsetY = (this.height - this.state.rows * this.cell) / 2;
+    this.baseCell = Math.max(1, Math.min((this.width - gutter * 2) / this.state.cols, (this.height - gutter * 2) / this.state.rows));
+    this.cell = this.baseCell * this.zoom;
+    const center = this.viewCenter || { x: this.state.cols / 2, y: this.state.rows / 2 };
+    this.offsetX = this.width / 2 - center.x * this.cell;
+    this.offsetY = this.height / 2 - center.y * this.cell;
+    this.clampView();
+  }
+
+  clampView() {
+    if (!this.state) return;
+    const gutter = this.width < 500 ? 8 : 26;
+    const clampAxis = (offset, viewport, extent, endGutter = gutter) => extent <= viewport - gutter - endGutter
+      ? (viewport - extent) / 2
+      : Math.min(gutter, Math.max(viewport - endGutter - extent, offset));
+    // Allow the rightmost cells to move clear of the overlaid camera controls.
+    this.offsetX = clampAxis(this.offsetX, this.width, this.state.cols * this.cell, this.zoom > 1 ? Math.max(gutter, 56) : gutter);
+    this.offsetY = clampAxis(this.offsetY, this.height, this.state.rows * this.cell);
+    this.viewCenter = { x: (this.width / 2 - this.offsetX) / this.cell, y: (this.height / 2 - this.offsetY) / this.cell };
+  }
+
+  localPoint(event) {
+    const bounds = this.canvas.getBoundingClientRect();
+    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
 
   pointToCell(clientX, clientY) {
     if (!this.state) return null;
-    const bounds = this.canvas.getBoundingClientRect();
-    const x = Math.floor((clientX - bounds.left - this.offsetX) / this.cell);
-    const y = Math.floor((clientY - bounds.top - this.offsetY) / this.cell);
+    const point = this.localPoint({ clientX, clientY });
+    if (point.x < 0 || point.y < 0 || point.x >= this.width || point.y >= this.height) return null;
+    const x = Math.floor((point.x - this.offsetX) / this.cell);
+    const y = Math.floor((point.y - this.offsetY) / this.cell);
     if (x < 0 || y < 0 || x >= this.state.cols || y >= this.state.rows) return null;
     return { x, y };
   }
@@ -92,26 +147,101 @@ export class Board {
     return { x: this.offsetX + (cell.x + 0.5) * this.cell, y: this.offsetY + (cell.y + 0.5) * this.cell };
   }
 
+  finishEdit() {
+    const editing = this.pointer !== null;
+    this.pointer = null;
+    this.lastCell = null;
+    this.origin = null;
+    this.lastReason = null;
+    this.hover = null;
+    if (editing) this.callbacks.onGestureEnd?.();
+  }
+
+  /** Retain contacts normally; page lifecycle cancellation can discard stale contacts. */
+  cancelGesture({ releasePointers = false } = {}) {
+    this.finishEdit();
+    this.gesture = null;
+    if (releasePointers) {
+      const ids = [...this.pointers.keys()];
+      this.pointers.clear();
+      for (const id of ids) {
+        if (this.canvas.hasPointerCapture?.(id)) this.canvas.releasePointerCapture(id);
+      }
+    }
+    this.blockEdit = this.pointers.size > 0;
+    this.gestureCanceled = this.pointers.size > 0;
+  }
+
+  startPinch() {
+    const entries = [...this.pointers.entries()].slice(0, 2);
+    if (entries.length < 2) { this.gesture = null; return; }
+    const [a, b] = entries.map(entry => entry[1]);
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    this.gesture = {
+      type: 'pinch', ids: entries.map(entry => entry[0]),
+      distance: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)), zoom: this.zoom,
+      anchor: { x: (midpoint.x - this.offsetX) / this.cell, y: (midpoint.y - this.offsetY) / this.cell },
+    };
+  }
+
+  moveCamera() {
+    const gesture = this.gesture;
+    if (!gesture || this.gestureCanceled) return;
+    if (gesture.type === 'pan') {
+      const point = this.pointers.get(gesture.id);
+      if (!point) return;
+      this.offsetX = gesture.offsetX + point.x - gesture.point.x;
+      this.offsetY = gesture.offsetY + point.y - gesture.point.y;
+    } else {
+      const [a, b] = gesture.ids.map(id => this.pointers.get(id));
+      if (!a || !b) return;
+      const distance = Math.hypot(b.x - a.x, b.y - a.y);
+      this.zoom = Math.min(3, Math.max(1, gesture.zoom * distance / gesture.distance));
+      this.cell = this.baseCell * this.zoom;
+      this.offsetX = (a.x + b.x) / 2 - gesture.anchor.x * this.cell;
+      this.offsetY = (a.y + b.y) / 2 - gesture.anchor.y * this.cell;
+    }
+    this.clampView();
+    this.notifyView();
+  }
+
   onPointerDown(event) {
-    if (this.pointer !== null || !this.state || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    if (!this.state || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    event.preventDefault();
+    this.pointers.set(event.pointerId, this.localPoint(event));
+    try { this.canvas.setPointerCapture?.(event.pointerId); } catch { /* The contact may already have ended. */ }
+    if (this.gestureCanceled) return;
+    if (this.pointers.size >= 2) {
+      this.finishEdit();
+      this.blockEdit = true;
+      this.startPinch();
+      return;
+    }
+    if (this.blockEdit) return;
+    if (this.tool === 'pan') {
+      this.hover = null;
+      this.gesture = { type: 'pan', id: event.pointerId, point: this.localPoint(event), offsetX: this.offsetX, offsetY: this.offsetY };
+      return;
+    }
     const cell = this.pointToCell(event.clientX, event.clientY);
     if (!cell) return;
-    event.preventDefault();
     this.pointer = event.pointerId;
     this.lastCell = cell;
     this.hover = cell;
     this.origin = cell;
     this.moved = false;
-    this.canvas.setPointerCapture?.(event.pointerId);
   }
 
   onPointerMove(event) {
-    // A second finger must not move the active drag's preview or endpoint.
-    if (this.pointer !== null && event.pointerId !== this.pointer) return;
+    if (this.pointers.has(event.pointerId)) {
+      this.pointers.set(event.pointerId, this.localPoint(event));
+      event.preventDefault();
+    }
+    if (this.gesture || this.blockEdit) { this.moveCamera(); return; }
     const cell = this.pointToCell(event.clientX, event.clientY);
-    this.hover = cell;
+    if (this.pointer !== null && event.pointerId !== this.pointer) return;
+    this.hover = this.tool === 'pan' ? null : cell;
     if (event.pointerId !== this.pointer) return;
-    event.preventDefault();
     if (!cell) { this.lastCell = null; return; }
     if (!this.lastCell) { this.lastCell = cell; return; }
     if (sameCell(this.lastCell, cell)) return;
@@ -134,21 +264,31 @@ export class Board {
   }
 
   onPointerUp(event) {
-    if (event.pointerId !== this.pointer) return;
+    if (!this.pointers.has(event.pointerId)) return;
     // Touch browsers can deliver a final release position without a matching move.
     if (event.type === 'pointerup') this.onPointerMove(event);
-    if (this.tool === 'erase' && !this.moved && this.lastCell && event.type === 'pointerup') {
-      const roads = this.state?.roads || [];
-      const road = roads.find((entry) => !entry.pendingRemoval && (sameCell(entry.a, this.lastCell) || sameCell(entry.b, this.lastCell)));
-      if (road) this.callbacks.onErase?.(road.a, road.b);
+    if (event.pointerId === this.pointer && !this.blockEdit) {
+      if (this.tool === 'erase' && !this.moved && this.lastCell && event.type === 'pointerup') {
+        const roads = this.state?.roads || [];
+        const road = roads.find(entry => !entry.pendingRemoval && (sameCell(entry.a, this.lastCell) || sameCell(entry.b, this.lastCell)));
+        if (road) this.callbacks.onErase?.(road.a, road.b);
+      }
+      this.finishEdit();
     }
-    this.pointer = null;
-    this.lastCell = null;
-    this.origin = null;
-    this.lastReason = null;
-    this.hover = event.pointerType === 'mouse' ? this.hover : null;
+    this.pointers.delete(event.pointerId);
     if (this.canvas.hasPointerCapture?.(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
-    this.callbacks.onGestureEnd?.();
+    if (event.type !== 'pointerup') {
+      this.finishEdit();
+      this.gestureCanceled = this.pointers.size > 0;
+      this.blockEdit = this.pointers.size > 0;
+      this.gesture = null;
+    } else if (this.gesture?.type === 'pinch') this.startPinch();
+    else this.gesture = null;
+    if (!this.pointers.size) {
+      this.blockEdit = false;
+      this.gestureCanceled = false;
+      this.hover = null;
+    }
   }
 
   render(time = 0) {
@@ -487,6 +627,7 @@ export class Board {
   }
 
   destroy() {
+    this.cancelGesture({ releasePointers: true });
     this.observer.disconnect();
     for (const [name, handler] of Object.entries(this.handlers)) this.canvas.removeEventListener(name, handler);
   }

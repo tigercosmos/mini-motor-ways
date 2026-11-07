@@ -43,18 +43,23 @@ function fixture(t, { width = 390, height = 560, dpr = 3 } = {}) {
   const state = createGame(7);
   const roads = [];
   const erased = [];
+  const viewChanges = [];
   let gestures = 0;
   const board = new Board(canvas, {
     onRoad(a, b) { roads.push([a, b]); return addRoad(state, a, b); },
     onErase(a, b) { erased.push([a, b]); return removeRoad(state, a, b); },
     onGestureEnd() { gestures++; },
+    onViewChange(view) { viewChanges.push(view); },
   });
   board.setState(state);
   function dispatch(type, cell, pointerId = 1) {
     const point = board.cellToPoint(cell);
+    dispatchAt(type, point.x, point.y, pointerId);
+  }
+  function dispatchAt(type, x, y, pointerId = 1, pointerType = 'touch') {
     listeners.get(type)?.({
-      type, pointerId, pointerType: 'touch',
-      clientX: bounds.left + point.x, clientY: bounds.top + point.y,
+      type, pointerId, pointerType, button: 0,
+      clientX: bounds.left + x, clientY: bounds.top + y,
       preventDefault() {},
     });
   }
@@ -65,7 +70,7 @@ function fixture(t, { width = 390, height = 560, dpr = 3 } = {}) {
     if (originalObserver === undefined) delete globalThis.ResizeObserver;
     else globalThis.ResizeObserver = originalObserver;
   });
-  return { board, canvas, ctx, bounds, captures, state, roads, erased, dispatch, gestures: () => gestures };
+  return { board, canvas, ctx, bounds, captures, state, roads, erased, dispatch, dispatchAt, viewChanges, gestures: () => gestures };
 }
 
 test('client coordinates roundtrip on portrait and landscape layouts; high DPR is capped', t => {
@@ -109,21 +114,27 @@ test('a rapid diagonal drag produces a continuous adjacent path and spends exact
   assert.equal(captures.size, 0);
 });
 
-test('a second finger cannot redirect or finish the first finger drag', t => {
+test('a second finger finishes the existing edit once and suppresses editing until all fingers lift', t => {
   const { board, dispatch, roads, gestures } = fixture(t);
   const start = { x: 1, y: 1 };
   dispatch('pointerdown', start);
+  dispatch('pointermove', { x: 2, y: 1 });
   dispatch('pointerdown', { x: 9, y: 9 }, 2);
   dispatch('pointermove', { x: 10, y: 10 }, 2);
   dispatch('pointerup', { x: 10, y: 10 }, 2);
-  assert.deepEqual(board.hover, start);
-  assert.equal(board.pointer, 1);
-  assert.equal(roads.length, 0);
-  assert.equal(gestures(), 0);
+  assert.equal(board.hover, null);
+  assert.equal(board.pointer, null);
+  assert.equal(roads.length, 1);
+  assert.equal(gestures(), 1);
   dispatch('pointermove', { x: 3, y: 1 });
   dispatch('pointerup', { x: 3, y: 1 });
-  assert.equal(roads.length, 2);
+  assert.equal(roads.length, 1);
   assert.equal(gestures(), 1);
+  board.resetView();
+  dispatch('pointerdown', { x: 3, y: 1 });
+  dispatch('pointerup', { x: 4, y: 1 });
+  assert.equal(roads.length, 2);
+  assert.equal(gestures(), 2);
 });
 
 test('the final touch release draws omitted segments even without a pointermove', t => {
@@ -225,4 +236,177 @@ test('home driveway follows the active entrance instead of an old pending entran
   const before = JSON.stringify(state);
   board.render(1000);
   assert.equal(JSON.stringify(state), before, 'render must not mutate the game state');
+});
+
+test('camera buttons clamp zoom to 1–3x and reset the view without touching game state', t => {
+  const { board, state, viewChanges } = fixture(t);
+  const before = JSON.stringify(state);
+  const initialOffset = { x: board.offsetX, y: board.offsetY };
+  board.zoomBy(2);
+  assert.deepEqual(board.getView(), { zoom: 2 });
+  board.zoomBy(100);
+  assert.equal(board.getView().zoom, 3);
+  board.zoomBy(0);
+  board.zoomBy(NaN);
+  assert.equal(board.getView().zoom, 3);
+  board.zoomBy(0.01);
+  assert.equal(board.getView().zoom, 1);
+  board.zoomBy(2);
+  board.resetView();
+  assert.equal(board.getView().zoom, 1);
+  assert.deepEqual({ x: board.offsetX, y: board.offsetY }, initialOffset);
+  assert.deepEqual(viewChanges.at(-1), { zoom: 1 });
+  assert.equal(JSON.stringify(state), before);
+});
+
+test('pinch zoom preserves the world point under the fingers midpoint', t => {
+  const { board, dispatchAt, roads } = fixture(t);
+  board.zoomBy(1.5);
+  const anchor = { x: (170 - board.offsetX) / board.cell, y: (230 - board.offsetY) / board.cell };
+  dispatchAt('pointerdown', 120, 230, 1);
+  dispatchAt('pointerdown', 220, 230, 2);
+  dispatchAt('pointermove', 100, 230, 1);
+  dispatchAt('pointermove', 240, 230, 2);
+  assert.ok(Math.abs(board.getView().zoom - 2.1) < 1e-12);
+  assert.ok(Math.abs((170 - board.offsetX) / board.cell - anchor.x) < 1e-12);
+  assert.ok(Math.abs((230 - board.offsetY) / board.cell - anchor.y) < 1e-12);
+  assert.equal(roads.length, 0);
+  dispatchAt('pointerup', 100, 230, 1);
+  dispatchAt('pointerup', 240, 230, 2);
+});
+
+test('two-finger translation pans the camera without altering the final zoom or roads', t => {
+  const { board, dispatchAt, roads, erased } = fixture(t);
+  board.zoomBy(2);
+  board.setTool('erase');
+  const start = { x: board.offsetX, y: board.offsetY };
+  dispatchAt('pointerdown', 120, 250, 1);
+  dispatchAt('pointerdown', 220, 250, 2);
+  dispatchAt('pointermove', 145, 280, 1);
+  dispatchAt('pointermove', 245, 280, 2);
+  assert.equal(board.getView().zoom, 2);
+  assert.ok(Math.abs(board.offsetX - start.x - 25) < 1e-12);
+  assert.ok(Math.abs(board.offsetY - start.y - 30) < 1e-12);
+  dispatchAt('pointerup', 145, 280, 1);
+  dispatchAt('pointermove', 300, 300, 2);
+  dispatchAt('pointerup', 300, 300, 2);
+  assert.equal(roads.length, 0);
+  assert.equal(erased.length, 0);
+});
+
+test('the pan tool supports one finger and mouse while keeping map edges reachable and bounded', t => {
+  const { board, dispatchAt, roads, state } = fixture(t);
+  board.zoomBy(2);
+  board.setTool('pan');
+  const start = { x: board.offsetX, y: board.offsetY };
+  dispatchAt('pointerdown', 190, 280);
+  dispatchAt('pointermove', 220, 310);
+  assert.equal(board.offsetX, start.x + 30);
+  assert.equal(board.offsetY, start.y + 30);
+  dispatchAt('pointerup', 220, 310);
+  dispatchAt('pointerdown', 190, 280, 2, 'mouse');
+  dispatchAt('pointermove', 10000, 10000, 2, 'mouse');
+  assert.equal(board.offsetX, 8);
+  assert.equal(board.offsetY, 8);
+  dispatchAt('pointermove', -10000, -10000, 2, 'mouse');
+  assert.equal(board.offsetX, board.width - 56 - state.cols * board.cell);
+  assert.equal(board.offsetY, board.height - 8 - state.rows * board.cell);
+  assert.ok(board.cellToPoint({ x: state.cols - 1, y: 8 }).x < board.width - 56);
+  dispatchAt('pointerup', -10000, -10000, 2, 'mouse');
+  assert.equal(roads.length, 0);
+});
+
+test('resizing preserves the viewed world center and replacing equal-sized game state preserves zoom', t => {
+  const { board, bounds, dispatchAt, state } = fixture(t);
+  board.zoomBy(2);
+  board.setTool('pan');
+  dispatchAt('pointerdown', 190, 280);
+  dispatchAt('pointerup', 210, 300);
+  const center = { ...board.viewCenter };
+  bounds.width = 400;
+  bounds.height = 580;
+  board.resize();
+  assert.equal(board.getView().zoom, 2);
+  assert.ok(Math.abs(board.viewCenter.x - center.x) < 1e-12);
+  assert.ok(Math.abs(board.viewCenter.y - center.y) < 1e-12);
+  board.setState(structuredClone(state));
+  assert.equal(board.getView().zoom, 2);
+  board.setState({ ...state, cols: 15, rows: 18 });
+  assert.equal(board.getView().zoom, 1);
+});
+
+test('roads drawn after zoom use inverse camera coordinates', t => {
+  const { board, dispatch, roads, state, bounds } = fixture(t);
+  board.zoomBy(2);
+  const start = { x: 4, y: 5 }, end = { x: 6, y: 5 };
+  const position = board.cellToPoint(start);
+  assert.deepEqual(board.pointToCell(position.x + bounds.left, position.y + bounds.top), start);
+  const budget = state.roadTiles;
+  dispatch('pointerdown', start);
+  dispatch('pointerup', end);
+  assert.deepEqual(roads, [[start, { x: 5, y: 5 }], [{ x: 5, y: 5 }, end]]);
+  assert.equal(state.roadTiles, budget - 2);
+});
+
+test('captured pointers outside the visible canvas cannot draw hidden roads or bridge a re-entry gap', t => {
+  const { board, dispatchAt, roads, bounds } = fixture(t);
+  board.zoomBy(3);
+  assert.equal(board.pointToCell(bounds.left + 400, bounds.top + 280), null);
+  dispatchAt('pointerdown', 380, 280);
+  dispatchAt('pointermove', 500, 280);
+  dispatchAt('pointermove', 50, 280);
+  dispatchAt('pointerup', 50, 280);
+  assert.equal(roads.length, 0);
+});
+
+test('cancelGesture finalizes an edit once and prevents edits until all retained contacts end', t => {
+  const { board, dispatch, roads, gestures, captures } = fixture(t);
+  dispatch('pointerdown', { x: 1, y: 1 });
+  dispatch('pointermove', { x: 3, y: 1 });
+  board.cancelGesture();
+  board.cancelGesture();
+  dispatch('pointerdown', { x: 4, y: 1 }, 2);
+  dispatch('pointermove', { x: 5, y: 1 });
+  dispatch('pointerup', { x: 5, y: 1 });
+  dispatch('pointermove', { x: 6, y: 1 }, 2);
+  dispatch('pointerup', { x: 6, y: 1 }, 2);
+  assert.equal(roads.length, 2);
+  assert.equal(gestures(), 1);
+  assert.equal(captures.size, 0);
+  dispatch('pointerdown', { x: 3, y: 1 });
+  dispatch('pointerup', { x: 4, y: 1 });
+  assert.equal(roads.length, 3);
+  assert.equal(gestures(), 2);
+});
+
+test('canceling one finger of a pinch blocks camera and edits until the remaining finger lifts', t => {
+  const { board, dispatchAt, roads } = fixture(t);
+  board.zoomBy(2);
+  dispatchAt('pointerdown', 120, 250, 1);
+  dispatchAt('pointerdown', 220, 250, 2);
+  dispatchAt('pointercancel', 120, 250, 1);
+  const view = { zoom: board.zoom, x: board.offsetX, y: board.offsetY };
+  dispatchAt('pointermove', 300, 300, 2);
+  dispatchAt('pointerup', 300, 300, 2);
+  assert.deepEqual({ zoom: board.zoom, x: board.offsetX, y: board.offsetY }, view);
+  assert.equal(roads.length, 0);
+  assert.equal(board.pointers.size, 0);
+});
+
+test('page lifecycle cancellation discards stale contacts so the next gesture is not blocked', t => {
+  const { board, dispatch, roads, gestures, captures } = fixture(t);
+  dispatch('pointerdown', { x: 1, y: 1 }, 10);
+  dispatch('pointermove', { x: 2, y: 1 }, 10);
+  dispatch('pointerdown', { x: 9, y: 9 }, 20);
+  board.cancelGesture({ releasePointers: true });
+  assert.equal(board.pointers.size, 0);
+  assert.equal(captures.size, 0);
+  assert.equal(gestures(), 1);
+  // The browser may deliver a late release, or none at all, after returning to the page.
+  dispatch('pointerup', { x: 6, y: 1 }, 10);
+  assert.equal(roads.length, 1);
+  dispatch('pointerdown', { x: 2, y: 1 }, 30);
+  dispatch('pointerup', { x: 3, y: 1 }, 30);
+  assert.equal(roads.length, 2);
+  assert.equal(gestures(), 2);
 });

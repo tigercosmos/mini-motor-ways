@@ -74,9 +74,16 @@ const board = new Board($('game-canvas'), {
     if (stroke.length) { history.push(stroke); history = history.slice(-30); stroke = []; save(); updateUI(); }
   },
   onMessage: toast,
+  onViewChange: updateViewControls,
 });
 board.setState(state);
 board.setGrid(grid);
+
+function updateViewControls({ zoom }) {
+  $('zoom-value').textContent = `${Math.round(zoom * 100)}%`;
+  $('zoom-out-btn').disabled = Boolean(modalKind) || zoom <= 1.001;
+  $('zoom-in-btn').disabled = Boolean(modalKind) || zoom >= 2.999;
+}
 
 function save() {
   if (!started) return;
@@ -92,7 +99,7 @@ function updateUI() {
   $('roads-value').textContent = String(state.roadTiles);
   $('bridges-value').textContent = String(state.bridges);
   $('best-value').textContent = Math.max(best, state.score).toLocaleString();
-  const status = !started ? '準備好，畫出你的第一條路。' : paused ? '時間暫停中，慢慢規劃你的道路。' : tool === 'erase' ? '拖曳拆除道路，回收資源。' : '從住宅拖曳到同色目的地。';
+  const status = !started ? '準備好，畫出你的第一條路。' : tool === 'pan' ? '單指移動地圖；雙指張開可放大。' : paused ? '時間暫停中，慢慢規劃你的道路。' : tool === 'erase' ? '拖曳拆除道路，回收資源。' : '從住宅拖曳到同色目的地。';
   $('status-text').textContent = status;
   $('pause-btn').setAttribute('aria-pressed', String(paused));
   $('pause-btn').setAttribute('aria-label', paused ? '繼續遊戲' : '暫停遊戲');
@@ -108,6 +115,8 @@ function updateUI() {
   $('speed-btn').dataset.speed = String(speed);
   $('road-btn').setAttribute('aria-pressed', String(tool === 'road'));
   $('erase-btn').setAttribute('aria-pressed', String(tool === 'erase'));
+  $('pan-btn').setAttribute('aria-pressed', String(tool === 'pan'));
+  updateViewControls(board.getView());
   $('grid-btn').setAttribute('aria-pressed', String(grid));
   $('sound-btn').setAttribute('aria-pressed', String(sound));
   $('sound-btn').setAttribute('aria-label', sound ? '關閉音效' : '開啟音效');
@@ -115,6 +124,7 @@ function updateUI() {
 }
 
 function showModal(kind, html) {
+  board.cancelGesture();
   previousFocus = document.activeElement;
   modalKind = kind;
   $('modal-content').innerHTML = html;
@@ -139,7 +149,7 @@ function closeModal() {
 }
 
 function begin(fresh = false) {
-  if (fresh) { state = createGame(Date.now() >>> 0); board.setState(state); history = []; stroke = []; lastMessage = state.message || ''; }
+  if (fresh) { state = createGame(Date.now() >>> 0); board.setState(state); board.resetView(); selectTool('road'); history = []; stroke = []; lastMessage = state.message || ''; }
   started = true;
   paused = false;
   closeModal();
@@ -154,7 +164,7 @@ function welcome() {
     <div class="welcome-art" aria-hidden="true"><span class="mini-home">⌂</span><span class="mini-road"></span><span class="mini-destination">●</span></div>
     <h2 id="dialog-title">小小道路，<br>連起一座城。</h2>
     <p>畫下道路，連接同色的住宅與目的地。<br>看車子出發，讓每一次日常順利抵達。</p>
-    <div class="welcome-tips"><span>↗ 拖曳鋪路</span><span>Ⅱ 隨時暫停</span><span>♡ 慢慢上手</span></div>
+    <div class="welcome-tips"><span>↗ 單指鋪路</span><span>⤢ 雙指縮放</span><span>Ⅱ 隨時暫停</span></div>
     <div class="modal-actions"><button class="primary-btn" id="begin-btn">${saved?.status === 'gameover' ? '查看上次結果' : saved ? '繼續我的小城' : '開始我的小城'} <span aria-hidden="true">↗</span></button>${saved ? '<button class="secondary-btn" id="new-btn">重新開始</button>' : ''}</div>
     <p class="modal-footnote">為指尖設計 · 建議直向遊玩 · 自動儲存進度</p>
   </div>`);
@@ -166,9 +176,10 @@ function showHelp() {
   showModal('help', `<div class="modal-card"><span class="modal-eyebrow">HOW TO PLAY</span><h2 id="dialog-title">讓日常，流動起來。</h2>
     <ol class="help-steps"><li><strong>連接同色建築</strong><span>每戶有兩台車、一個出入口。拖曳連接同色目的地；有需求才會出發，每趟服務後返家。</span></li>
     <li><strong>留意等待需求</strong><span>目的地的圓點代表等待中的旅客。外圈越滿越危險，擁塞太久就會結束。</span></li>
+    <li><strong>放大，畫得更精準</strong><span>雙指張開或捏合縮放，雙指拖曳平移。選「移動」可單指平移；回到「鋪路」繼續建設。點百分比回到全圖。</span></li>
     <li><strong>善用有限資源</strong><span>每段路花費一道路；跨河另需橋梁。拆除中的灰色路段，要等車輛返家才回收。</span></li>
     <li><strong>給城市留一點空間</strong><span>每週會出現新建築，並可選擇道路或橋梁補給。暫停時也能編輯道路。</span></li></ol>
-    <p class="modal-footnote">電腦快捷鍵：空白鍵暫停 · R 鋪路 · E 拆除 · G 格線 · Ctrl / ⌘ Z 復原<br>iPhone 可從 Safari「分享 → 加入主畫面」啟動。</p>
+    <p class="modal-footnote">電腦快捷鍵：空白鍵暫停 · R 鋪路 · E 拆除 · H 移動 · G 格線 · 0 全圖 · Ctrl / ⌘ Z 復原<br>iPhone 可從 Safari「分享 → 加入主畫面」啟動。</p>
     <div class="modal-actions"><button class="primary-btn" id="close-help">明白了，繼續規劃 ↗</button></div></div>`);
   $('close-help').onclick = closeModal;
 }
@@ -206,6 +217,10 @@ function undo() {
 }
 $('road-btn').onclick = () => selectTool('road');
 $('erase-btn').onclick = () => selectTool('erase');
+$('pan-btn').onclick = () => selectTool(tool === 'pan' ? 'road' : 'pan');
+$('zoom-in-btn').onclick = () => board.zoomBy(1.35);
+$('zoom-out-btn').onclick = () => board.zoomBy(1 / 1.35);
+$('reset-view-btn').onclick = () => board.resetView();
 $('pause-btn').onclick = togglePause;
 $('speed-btn').onclick = () => { speed = speed === 1 ? 2 : 1; updateUI(); toast(`時間速度：${speed} 倍`); };
 $('grid-btn').onclick = () => { grid = !grid; board.setGrid(grid); updateUI(); };
@@ -234,14 +249,17 @@ document.addEventListener('keydown', event => {
   else if (!event.metaKey && !event.ctrlKey && !event.altKey) {
     if (event.key.toLowerCase() === 'r') selectTool('road');
     if (event.key.toLowerCase() === 'e') selectTool('erase');
+    if (event.key.toLowerCase() === 'h') selectTool('pan');
+    if (event.key === '0') board.resetView();
     if (event.key.toLowerCase() === 'g') $('grid-btn').click();
   }
 });
 document.addEventListener('visibilitychange', () => {
+  if (document.hidden) board.cancelGesture({ releasePointers: true });
   if (document.hidden && started) { paused = true; save(); updateUI(); }
   lastTime = performance.now();
 });
-window.addEventListener('pagehide', save);
+window.addEventListener('pagehide', () => { board.cancelGesture({ releasePointers: true }); save(); });
 
 function frame(time) {
   const dt = Math.min((time - lastTime) / 1000, 0.1);
