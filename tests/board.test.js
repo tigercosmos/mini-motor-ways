@@ -457,3 +457,23 @@ test('direction buffer preserves deliberate right-angle turns and commits a shor
   dispatchAt('pointerup', point.x + 0.6 * board.cell, point.y);
   assert.deepEqual(roads, [[start, { x: 3, y: 3 }], [{ x: 3, y: 3 }, { x: 3, y: 2 }], [{ x: 3, y: 2 }, { x: 4, y: 2 }]]);
 });
+
+test('road strokes stop at the shop instead of creating disconnected roads beyond it', t => {
+  const { dispatch, state } = fixture(t);
+  const before = state.roads.length;
+  dispatch('pointerdown', { x: 7, y: 2 });
+  dispatch('pointermove', { x: 7, y: 5 });
+  dispatch('pointerup', { x: 7, y: 5 });
+  assert.equal(state.roads.length, before);
+});
+
+test('migrated shops render on their reserved side of parking', t => {
+  const { board, state, ctx } = fixture(t);
+  const destination = state.buildings.find(item => item.id === 'd1');
+  destination.shopSide = 'south';
+  board.drawDestination = (_ctx, building) => {
+    if (building.id !== destination.id) return;
+    assert.deepEqual(ctx.operations.filter(op => op.method === 'translate').at(-1).args, [0, 1]);
+  };
+  board.drawBuildings(ctx, 0);
+});

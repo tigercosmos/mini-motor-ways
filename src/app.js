@@ -8,7 +8,11 @@ const storage = {
   get(key) { try { return localStorage.getItem(key); } catch { return null; } },
   set(key, value) { try { localStorage.setItem(key, value); } catch { /* Private browsing can disable storage. */ } },
 };
-let saved = restoreGame(storage.get(SAVE_KEY));
+const previousSave = storage.get(SAVE_KEY);
+try {
+  if (previousSave && JSON.parse(previousSave)?.version < 3) storage.set(`${SAVE_KEY}-before-parking-v3`, previousSave);
+} catch { /* Invalid saves are handled by restoreGame. */ }
+let saved = restoreGame(previousSave);
 let state = saved || createGame(Date.now() >>> 0);
 let best = Number(storage.get(BEST_KEY)) || 0;
 let paused = true;
@@ -100,7 +104,7 @@ function updateUI() {
   $('roads-value').textContent = String(state.roadTiles);
   $('bridges-value').textContent = String(state.bridges);
   $('best-value').textContent = Math.max(best, state.score).toLocaleString();
-  const status = !started ? '準備好，畫出你的第一條路。' : tool === 'pan' ? '單指移動地圖；雙指張開可放大。' : paused ? '時間暫停中，慢慢規劃你的道路。' : tool === 'erase' ? '拖曳拆除道路，回收資源。' : '從住宅拖曳到同色目的地。';
+  const status = !started ? '準備好，畫出你的第一條路。' : tool === 'pan' ? '單指移動地圖；雙指張開可放大。' : paused ? '時間暫停中，慢慢規劃你的道路。' : tool === 'erase' ? '拖曳拆除道路，回收資源。' : '從住宅接到同色商場旁的 P 停車場。';
   $('status-text').textContent = status;
   $('pause-btn').setAttribute('aria-pressed', String(paused));
   $('pause-btn').setAttribute('aria-label', paused ? '繼續遊戲' : '暫停遊戲');
@@ -155,7 +159,7 @@ function begin(fresh = false) {
   paused = false;
   closeModal();
   save();
-  toast(fresh || !saved ? '先試試連接青綠色住宅與目的地。' : '歡迎回來，你的小城還在這裡。');
+  toast(fresh || !saved ? '把青綠色住宅接到商場旁的 P 停車場。' : state.message || '歡迎回來，你的小城還在這裡。');
   saved = null;
 }
 
@@ -175,7 +179,7 @@ function welcome() {
 
 function showHelp() {
   showModal('help', `<div class="modal-card"><span class="modal-eyebrow">HOW TO PLAY</span><h2 id="dialog-title">讓日常，流動起來。</h2>
-    <ol class="help-steps"><li><strong>連接同色建築</strong><span>每戶有兩台車，可往各方向畫直線或斜線。拖曳連接同色目的地下方的停車場；有需求才會出發，每趟服務後返家。</span></li>
+    <ol class="help-steps"><li><strong>連接同色建築</strong><span>每戶有兩台車，可往各方向畫直線或斜線。拖曳連接同色目的地旁的 P 停車場；有需求才會出發，每趟服務後返家。</span></li>
     <li><strong>留意等待需求</strong><span>目的地的圓點代表等待中的旅客。外圈越滿越危險，擁塞太久就會結束。</span></li>
     <li><strong>放大，畫得更精準</strong><span>雙指張開或捏合縮放，雙指拖曳平移。選「移動」可單指平移；回到「鋪路」繼續建設。點百分比回到全圖。</span></li>
     <li><strong>善用有限資源</strong><span>每段路花費一道路；跨河另需橋梁。拆除中的灰色路段，要等車輛返家才回收。</span></li>

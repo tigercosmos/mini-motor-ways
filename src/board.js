@@ -1,3 +1,5 @@
+import { shopCell } from './engine.js';
+
 const COLORS = {
   coral: { main: '#db725e', roof: '#bc594d', light: '#f5b4a0' },
   teal: { main: '#558d87', roof: '#3d726e', light: '#9ac7bd' },
@@ -266,6 +268,11 @@ export class Board {
           this.callbacks.onMessage?.(result.reason);
           this.lastReason = result.reason;
         }
+        if (this.tool === 'road' && result?.ok === false) {
+          this.lastCell = a;
+          this.moved = true;
+          return;
+        }
         a = b;
       }
     }
@@ -388,7 +395,7 @@ export class Board {
   }
 
   drawTrees(ctx) {
-    const occupied = new Set([...(this.state.water || []), ...(this.state.buildings || []), ...(this.state.roads || []).flatMap((road) => [road.a, road.b])].map(key));
+    const occupied = new Set([...(this.state.water || []), ...(this.state.buildings || []).flatMap(item => item.type === 'destination' ? [item, shopCell(item)] : [item]), ...(this.state.roads || []).flatMap((road) => [road.a, road.b])].map(key));
     for (let x = 0; x < this.state.cols; x++) {
       for (let y = 0; y < this.state.rows; y++) {
         const hash = (x * 43 + y * 67 + x * y * 17) % 79;
@@ -492,7 +499,7 @@ export class Board {
       ctx.save();
       ctx.translate(building.x + 0.5, building.y + 0.5);
       if (building.type === 'home') this.drawHome(ctx, colors, building);
-      else { ctx.translate(0, -1); this.drawDestination(ctx, building, colors, time); }
+      else { const shop = shopCell(building); ctx.translate(shop.x - building.x, shop.y - building.y); this.drawDestination(ctx, building, colors, time); }
       ctx.restore();
     }
   }

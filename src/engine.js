@@ -1,5 +1,12 @@
 const COLORS = ['coral', 'teal', 'gold', 'blue', 'purple'];
 const STEP = 0.05;
+const SHOP_SIDES = { north: [0, -1], south: [0, 1], west: [-1, 0], east: [1, 0] };
+export function shopCell(destination) {
+  const [dx, dy] = SHOP_SIDES[destination.shopSide || 'north'];
+  return { x: destination.x + dx, y: destination.y + dy };
+}
+const footprint = item => item.type === 'destination' ? [item, shopCell(item)] : [item];
+const shopAt = (state, point) => state.buildings.some(item => item.type === 'destination' && same(shopCell(item), point));
 const key = p => `${p.x},${p.y}`;
 const same = (a, b) => a.x === b.x && a.y === b.y;
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -19,7 +26,7 @@ function building(id, type, color, x, y) {
 export function createGame(seed = Date.now()) {
   const normalizedSeed = Number(seed) >>> 0;
   const state = {
-    version: 2, cols: 13, rows: 17, seed: normalizedSeed, rng: normalizedSeed,
+    version: 3, cols: 13, rows: 17, seed: normalizedSeed, rng: normalizedSeed,
     buildings: [building('h1', 'home', 'coral', 2, 3), building('h2', 'home', 'coral', 3, 6), building('d1', 'destination', 'coral', 7, 4), building('h3', 'home', 'teal', 10, 11), building('h4', 'home', 'teal', 7, 14), building('d2', 'destination', 'teal', 3, 12)],
     roads: [], cars: [], water: [], score: 0, elapsed: 0, week: 1,
     roadTiles: 24, bridges: 1, status: 'playing', upgradeChoices: ['roads', 'bridge'],
@@ -30,8 +37,9 @@ export function createGame(seed = Date.now()) {
     // Fill the bend so diagonal roads cannot slip through a river seam.
     if (x === 5 || x === 8) state.water.push({ x, y: 8 });
   }
-  for (let x = 2; x < 7; x++) addRoad(state, { x, y: 3 }, { x: x + 1, y: 3 });
-  addRoad(state, { x: 7, y: 3 }, { x: 7, y: 4 });
+  for (let x = 2; x < 6; x++) addRoad(state, { x, y: 3 }, { x: x + 1, y: 3 });
+  addRoad(state, { x: 6, y: 3 }, { x: 6, y: 4 });
+  addRoad(state, { x: 6, y: 4 }, { x: 7, y: 4 });
   state.message = '';
   return state;
 }
@@ -93,6 +101,7 @@ export function addRoad(state, a, b) {
   if (!inside(state, a) || !inside(state, b)) return { ok: false, reason: '道路超出地圖範圍' };
   const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
   if ((!dx && !dy) || dx > 1 || dy > 1) return { ok: false, reason: '請連接相鄰的格子' };
+  if (shopAt(state, a) || shopAt(state, b)) return { ok: false, reason: '商場建築不能鋪路，請從旁邊接入 P 停車場' };
   const existing = state.roads.find(road => segmentKey(road.a, road.b) === segmentKey(a, b));
   if (existing && !existing.pendingRemoval) return { ok: true, existing: true, changed: false };
   if (existing) {
@@ -133,14 +142,15 @@ export function getRoute(state, fromId, toId) {
   if (!from || !to) return null;
   const graph = new Map();
   for (const road of [...state.roads, ...parkingLinks(state)]) {
-    if (road.pendingRemoval) continue;
+    if (road.pendingRemoval || shopAt(state, road.a) || shopAt(state, road.b)) continue;
     const a = key(road.a), b = key(road.b);
     if (!graph.has(a)) graph.set(a, []);
     if (!graph.has(b)) graph.set(b, []);
     graph.get(a).push(road.b);
     graph.get(b).push(road.a);
   }
-  const blocked = new Set(state.buildings.filter(item => item.type === 'home' && item.id !== fromId && item.id !== toId).map(key));
+  const endpointLots = new Set([from, to].filter(item => item.type === 'destination').map(item => item.parkingId || item.id));
+  const blocked = new Set(state.buildings.filter(item => item.id !== fromId && item.id !== toId && !(item.type === 'destination' && endpointLots.has(item.parkingId || item.id))).map(key));
   const origin = key(from), target = key(to), distances = new Map([[origin, 0]]), previous = new Map(), pending = [{ x: from.x, y: from.y }];
   const visited = new Set();
   while (pending.length) {
@@ -170,11 +180,10 @@ function vacantCell(state, color, type) {
   const home = state.buildings.find(item => item.type === 'home' && item.color === color);
   for (let attempt = 0; attempt < 100; attempt++) {
     const point = { x: 1 + Math.floor(random(state) * (state.cols - 2)), y: 1 + Math.floor(random(state) * (state.rows - 2)) };
-    if (isWater(state, point)) continue;
-    if (type === 'destination' && (isWater(state, { x: point.x, y: point.y - 1 }) || state.roads.some(road => incident(road, { x: point.x, y: point.y - 1 })))) continue;
-    if (state.buildings.some(item => item.type === 'destination' && distance({ x: item.x, y: item.y - 1 }, point) < 2.1)) continue;
-    if (state.buildings.some(item => distance(item, point) < 2.1)) continue;
-    if (state.roads.some(road => same(road.a, point) || same(road.b, point))) continue;
+    const cells = type === 'destination' ? [point, shopCell(point)] : [point];
+    if (cells.some(cell => !inside(state, cell) || isWater(state, cell))) continue;
+    if (state.buildings.some(item => footprint(item).some(occupied => cells.some(cell => distance(occupied, cell) < 2.1)))) continue;
+    if (state.roads.some(road => cells.some(cell => incident(road, cell)))) continue;
     // New pairs start on the same bank; bridges remain a routing choice.
     if (type === 'destination' && home && (home.y < 8) !== (point.y < 8)) continue;
     return point;
@@ -200,11 +209,12 @@ function expand(state) {
   let target = null, partner = null;
   // Every other opening can extend an existing lot with a different-color shop.
   if (wave % 2 === 0) {
-    for (const candidate of state.buildings.filter(item => item.type === 'destination' && item.color !== color && !item.parkingId)) {
+    for (const candidate of state.buildings.filter(item => item.type === 'destination' && item.color !== color && !item.parkingId && (!item.shopSide || item.shopSide === 'north'))) {
       const cell = { x: candidate.x + 1, y: candidate.y };
-      const footprint = [cell, { x: cell.x, y: cell.y - 1 }];
-      if (footprint.some(p => !inside(state, p) || isWater(state, p) || state.roads.some(road => incident(road, p)))) continue;
-      if (state.buildings.some(item => item !== candidate && footprint.some(p => distance(item, p) < 1.6))) continue;
+      if ((home.y < 8) !== (candidate.y < 8)) continue;
+      const cells = [cell, shopCell(cell)];
+      if (cells.some(p => !inside(state, p) || isWater(state, p) || state.roads.some(road => incident(road, p)))) continue;
+      if (state.buildings.some(item => item !== candidate && footprint(item).some(occupied => cells.some(p => distance(occupied, p) < 1.6)))) continue;
       target = cell; partner = candidate; break;
     }
   }
@@ -330,12 +340,13 @@ export function serializeGame(state) { return JSON.stringify(state); }
 export function restoreGame(json) {
   try {
     const state = typeof json === 'string' ? JSON.parse(json) : JSON.parse(JSON.stringify(json));
-    if (!state || ![1, 2].includes(state.version) || !Number.isInteger(state.cols) || !Number.isInteger(state.rows) || state.cols < 13 || state.cols > 29 || state.rows < 17 || state.rows > 33 || !['playing', 'upgrade', 'gameover'].includes(state.status)) return null;
+    if (!state || ![1, 2, 3].includes(state.version) || !Number.isInteger(state.cols) || !Number.isInteger(state.rows) || state.cols < 13 || state.cols > 29 || state.rows < 17 || state.rows > 33 || !['playing', 'upgrade', 'gameover'].includes(state.status)) return null;
     if (!Array.isArray(state.buildings) || !Array.isArray(state.roads) || !Array.isArray(state.cars) || !Array.isArray(state.water)) return null;
     if (state.buildings.length < 6 || state.buildings.length > 100 || state.roads.length > 1000 || state.cars.length > 200 || state.water.length > 957) return null;
     for (const field of ['seed', 'rng', 'score', 'elapsed', 'week', 'roadTiles', 'bridges', 'nextCarId', 'nextBuildingId', 'nextExpansion', 'dispatchClock']) if (!Number.isFinite(state[field]) || state[field] < 0) return null;
     if (!Number.isInteger(state.week) || state.week < 1 || !Number.isInteger(state.roadTiles) || !Number.isInteger(state.bridges)) return null;
     if (!state.buildings.every(item => inside(state, item) && typeof item.id === 'string' && ['home', 'destination'].includes(item.type) && COLORS.includes(item.color) && ['demand', 'stress', 'capacity', 'demandClock', 'cooldown'].every(field => Number.isFinite(item[field]) && item[field] >= 0) && item.capacity > 0 && item.stress <= 1)) return null;
+    if (state.buildings.some(item => item.shopSide !== undefined && !Object.hasOwn(SHOP_SIDES, item.shopSide))) return null;
     if (new Set(state.buildings.map(item => item.id)).size !== state.buildings.length) return null;
     if (!state.water.every(point => inside(state, point))) return null;
     if (!state.roads.every(road => inside(state, road.a) && inside(state, road.b) && distance(road.a, road.b) > 0 && distance(road.a, road.b) <= Math.SQRT2 && typeof road.bridge === 'boolean' && (road.pendingRemoval === undefined || typeof road.pendingRemoval === 'boolean'))) return null;
@@ -350,10 +361,7 @@ export function restoreGame(json) {
       state.version = 2;
       state.buildings.forEach(item => { item.capacity = 6; });
       state.roads.forEach(road => { road.pendingRemoval = false; });
-      // Keep existing routes safe while retiring any legacy extra driveways/branches.
-      for (const home of state.buildings.filter(item => item.type === 'home')) {
-        state.roads.filter(road => incident(road, home)).slice(1).forEach(road => { road.pendingRemoval = true; });
-      }
+      // Retire legacy branches while existing cars finish their trips.
       for (const point of state.water) state.roads.filter(road => !road.pendingRemoval && incident(road, point)).slice(2).forEach(road => { road.pendingRemoval = true; });
       finishRoadRemovals(state);
     }
@@ -364,6 +372,41 @@ export function restoreGame(json) {
     }
     if (state.water.some(point => state.roads.filter(road => !road.pendingRemoval && incident(road, point)).length > 2)) return null;
     if (bridgeReserve(state) > state.bridges) return null;
+    if (state.version < 3 && !migrateShops(state)) return null;
+    const occupied = state.buildings.flatMap(footprint);
+    if (new Set(occupied.map(key)).size !== occupied.length) return null;
+    if (state.buildings.some(item => item.type === 'destination' && (!inside(state, shopCell(item)) || isWater(state, shopCell(item))))) return null;
+    if (state.roads.some(road => shopAt(state, road.a) || shopAt(state, road.b))) return null;
     return state;
   } catch { return null; }
+}
+
+// Keep old parking access and trips when a shop can move to a clear side of its lot.
+function migrateShops(state) {
+  const occupied = new Set(state.buildings.map(key));
+  const assigned = new Set();
+  for (const destination of state.buildings.filter(item => item.type === 'destination')) {
+    if (assigned.has(destination.id)) continue;
+    const group = destination.parkingId ? state.buildings.filter(item => item.parkingId === destination.parkingId) : [destination];
+    const sides = group.length === 2 ? ['north', 'south'] : Object.keys(SHOP_SIDES);
+    const choices = sides.filter(side => group.every(item => {
+      const cell = shopCell({ ...item, shopSide: side });
+      return inside(state, cell) && !isWater(state, cell) && !occupied.has(key(cell));
+    }));
+    const clear = choices.find(side => group.every(item => !state.roads.some(road => incident(road, shopCell({ ...item, shopSide: side })))));
+    const side = clear || choices[0];
+    if (!side) return false;
+    for (const item of group) { item.shopSide = side; occupied.add(key(shopCell(item))); assigned.add(item.id); }
+  }
+  const removed = state.roads.filter(road => shopAt(state, road.a) || shopAt(state, road.b));
+  if (removed.length) {
+    const oldSpans = bridgeSpans(state);
+    state.cars = state.cars.filter(car => !removed.some(road => usesRoad(car, road)));
+    state.roads = state.roads.filter(road => !removed.includes(road));
+    state.roadTiles += removed.length;
+    state.bridges += oldSpans - bridgeSpans(state);
+    state.message = '已回收穿過商場的舊道路，請從旁邊接入 P 停車場';
+  }
+  state.version = 3;
+  return true;
 }
