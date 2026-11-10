@@ -1,4 +1,5 @@
 import { createGame, stepGame, addRoad, removeRoad, applyUpgrade, serializeGame, restoreGame } from './engine.js';
+import { RESULTS_KEY, readResults, recordResult } from './results.js';
 import { Board } from './board.js';
 import { AudioFeedback, DestinationAnnouncements } from './audio.js';
 
@@ -15,6 +16,8 @@ try {
 } catch { /* Invalid saves are handled by restoreGame. */ }
 let saved = restoreGame(previousSave);
 let state = saved || createGame(Date.now() >>> 0);
+state.runId ||= crypto.randomUUID();
+let results = readResults(storage.get(RESULTS_KEY));
 let best = Number(storage.get(BEST_KEY)) || 0;
 let paused = true;
 let started = false;
@@ -144,7 +147,7 @@ function closeModal() {
 }
 
 function begin(fresh = false) {
-  if (fresh) { state = createGame(Date.now() >>> 0); board.setState(state); board.resetView(); selectTool('road'); history = []; stroke = []; lastMessage = state.message || ''; }
+  if (fresh) { archiveResult(state.status === 'gameover' ? 'gameover' : 'restart'); state = createGame(Date.now() >>> 0); state.runId = crypto.randomUUID(); board.setState(state); board.resetView(); selectTool('road'); history = []; stroke = []; lastMessage = state.message || ''; }
   announcements.reset(state.buildings);
   sounds.unlock();
   started = true;
@@ -176,8 +179,9 @@ function welcome() {
     <p>畫下道路，連接同色的住宅與目的地。<br>看車子出發，讓每一次日常順利抵達。</p>
     <div class="welcome-tips"><span>↗ 拖曳預覽後放手鋪路</span><span>⤢ 雙指縮放</span><span>Ⅱ 隨時暫停</span></div>
     <div class="modal-actions"><button class="primary-btn" id="begin-btn">${saved?.status === 'gameover' ? '查看上次結果' : saved ? '繼續我的小城' : '開始我的小城'} <span aria-hidden="true">↗</span></button>${saved ? '<button class="secondary-btn" id="new-btn">重新開始</button>' : ''}</div>
-    <p class="modal-footnote">為指尖設計 · 建議直向遊玩 · 自動儲存進度</p>
+    <button class="secondary-btn" id="welcome-history-btn">最近成績</button><p class="modal-footnote">為指尖設計 · 建議直向遊玩 · 自動儲存進度</p>
   </div>`);
+  $('welcome-history-btn').onclick = () => showResults('welcome');
   $('begin-btn').onclick = () => begin(false);
   if ($('new-btn')) $('new-btn').onclick = () => begin(true);
 }
@@ -205,9 +209,28 @@ function showUpgrade() {
 }
 
 function showGameOver() {
+  archiveResult('gameover');
   save();
-  showModal('gameover', `<div class="modal-card"><span class="modal-eyebrow">EVERY ROAD TELLS A STORY</span><h2 id="dialog-title">這一站，<br>謝謝你的照顧。</h2><p>目的地的等待人數太多了。下一座小城，試試分流車輛、縮短旅程。</p><div class="result-score">${state.score.toLocaleString()}<span>趟順利抵達的日常</span></div><p>走過 ${state.week} 週 · 最佳紀錄 ${Math.max(best, state.score).toLocaleString()} 趟</p><div class="modal-actions"><button class="primary-btn" id="again-btn">再建一座小城 ↗</button></div></div>`);
+  showModal('gameover', `<div class="modal-card"><span class="modal-eyebrow">EVERY ROAD TELLS A STORY</span><h2 id="dialog-title">這一站，<br>謝謝你的照顧。</h2><p>目的地的等待人數太多了。下一座小城，試試分流車輛、縮短旅程。</p><div class="result-score">${state.score.toLocaleString()}<span>趟順利抵達的日常</span></div><p>走過 ${state.week} 週 · 最佳紀錄 ${Math.max(best, state.score).toLocaleString()} 趟</p><div class="modal-actions"><button class="primary-btn" id="again-btn">再建一座小城 ↗</button><button class="secondary-btn" id="result-history-btn">最近成績</button></div></div>`);
   $('again-btn').onclick = () => begin(true);
+  $('result-history-btn').onclick = () => showResults('gameover');
+}
+
+function archiveResult(reason) {
+  results = recordResult(results, state, reason);
+  storage.set(RESULTS_KEY, JSON.stringify(results));
+}
+
+function showResults(returnTo = '') {
+  if (modalKind) closeModal();
+  const rows = results.map(item => {
+    const date = new Date(item.endedAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const seconds = Math.floor(item.elapsed);
+    return `<li class="result-row"><div><strong>${item.score.toLocaleString()} 趟</strong><span>${date} · ${item.reason === 'gameover' ? '遊戲結束' : '重新開始'}</span></div><div>第 ${item.week} 週<span>${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒</span></div></li>`;
+  }).join('');
+  showModal('results', `<div class="modal-card"><span class="modal-eyebrow">RECENT JOURNEYS</span><h2 id="dialog-title">最近成績</h2><p>保留此瀏覽器最近 20 局，最新的在最上方。時間為遊戲內經過時間。</p>${rows ? `<ol class="results-list">${rows}</ol>` : '<p class="results-empty">目前還沒有成績紀錄。完成一局或重新開始後，成績就會出現在這裡。舊版未保存的歷史無法補回。</p>'}<button class="primary-btn" id="close-results-btn">返回</button></div>`);
+  const back = () => { closeModal(); if (returnTo === 'welcome') welcome(); else if (returnTo === 'gameover') showGameOver(); };
+  $('close-results-btn').onclick = back;
 }
 
 function selectTool(next) { tool = next; board.setTool(next); updateUI(); }
@@ -237,6 +260,7 @@ $('speed-btn').onclick = () => { speed = speed === 1 ? 2 : 1; updateUI(); toast(
 $('grid-btn').onclick = () => { grid = !grid; board.setGrid(grid); updateUI(); };
 $('undo-btn').onclick = undo;
 $('help-btn').onclick = showHelp;
+$('history-btn').onclick = () => showResults();
 $('sound-btn').onclick = () => { sound = !sound; storage.set('little-roads-sound', sound ? 'on' : 'off'); sounds.setEnabled(sound); playTone(520); updateUI(); toast(sound ? '音效已開啟' : '音效已關閉'); };
 $('restart-btn').onclick = () => {
   showModal('restart', '<div class="modal-card"><span class="modal-eyebrow">A FRESH START</span><h2 id="dialog-title">再建一座小城？</h2><p>目前的道路與進度將重新開始，最佳紀錄會保留。</p><div class="modal-actions"><button class="primary-btn" id="confirm-restart">重新開始</button><button class="secondary-btn" id="cancel-restart">回到我的小城</button></div></div>');
@@ -246,7 +270,8 @@ $('restart-btn').onclick = () => {
 
 document.addEventListener('keydown', event => {
   if (modalKind) {
-    if (event.key === 'Escape' && ['help', 'restart'].includes(modalKind)) closeModal();
+    if (event.key === 'Escape' && modalKind === 'results') $('close-results-btn').click();
+    else if (event.key === 'Escape' && ['help', 'restart'].includes(modalKind)) closeModal();
     if (event.key === 'Tab') {
       const buttons = [...$('modal').querySelectorAll('button')];
       const first = buttons[0]; const last = buttons.at(-1);

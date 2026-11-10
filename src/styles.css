@@ -28,3 +28,4 @@
 
 .line-mode-button .camera-caption{white-space:nowrap;font-size:8px}.line-mode-button>span:first-child{font-size:21px}
 @media(max-height:500px) and (orientation:landscape){.game-panel{grid-template-columns:minmax(0,1fr) 185px}.controls-area .camera-controls{width:154px}.controls-area .toolbar{width:154px}.controls-area .tool-button{width:44px;min-width:44px}.controls-area .interaction-hint{max-width:154px}}
+.results-list{list-style:none;margin:18px 0;padding:0;max-height:40vh;overflow-y:auto;text-align:left}.result-row{display:flex;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid #dce2d1;font-size:12px}.result-row strong{font-size:20px;color:#304b40}.result-row span{display:block;margin-top:5px;font-size:10px;color:#73816c}.result-row>div:last-child{text-align:right;white-space:nowrap}.results-empty{padding:20px 0}
