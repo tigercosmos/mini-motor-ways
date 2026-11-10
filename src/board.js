@@ -1,6 +1,8 @@
 const COLORS = {
   coral: { main: '#db725e', roof: '#bc594d', light: '#f5b4a0' },
   teal: { main: '#558d87', roof: '#3d726e', light: '#9ac7bd' },
+  blue: { main: '#658cbd', roof: '#456c9d', light: '#b2cee9' },
+  purple: { main: '#a37ab6', roof: '#805596', light: '#d7b6e6' },
   gold: { main: '#d5a44e', roof: '#ad8237', light: '#f1d28c' },
 };
 const sameCell = (a, b) => a && b && a.x === b.x && a.y === b.y;
@@ -58,6 +60,7 @@ export class Board {
   setState(state) {
     const changedDimensions = !this.state || this.state.cols !== state.cols || this.state.rows !== state.rows;
     this.state = state;
+    this.dimensions = `${state.cols},${state.rows}`;
     if (changedDimensions) {
       this.cancelGesture();
       this.zoom = 1;
@@ -122,8 +125,7 @@ export class Board {
     const clampAxis = (offset, viewport, extent, endGutter = gutter) => extent <= viewport - gutter - endGutter
       ? (viewport - extent) / 2
       : Math.min(gutter, Math.max(viewport - endGutter - extent, offset));
-    // Allow the rightmost cells to move clear of the overlaid camera controls.
-    this.offsetX = clampAxis(this.offsetX, this.width, this.state.cols * this.cell, this.zoom > 1 ? Math.max(gutter, 56) : gutter);
+    this.offsetX = clampAxis(this.offsetX, this.width, this.state.cols * this.cell, gutter);
     this.offsetY = clampAxis(this.offsetY, this.height, this.state.rows * this.cell);
     this.viewCenter = { x: (this.width / 2 - this.offsetX) / this.cell, y: (this.height / 2 - this.offsetY) / this.cell };
   }
@@ -292,6 +294,12 @@ export class Board {
   }
 
   render(time = 0) {
+    if (this.state && this.dimensions !== `${this.state.cols},${this.state.rows}`) {
+      this.dimensions = `${this.state.cols},${this.state.rows}`;
+      this.cancelGesture();
+      if (this.zoom === 1) this.viewCenter = { x: this.state.cols / 2, y: this.state.rows / 2 };
+      this.layout();
+    }
     const ctx = this.ctx;
     if (!ctx || this.width <= 0 || this.height <= 0) return;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -453,19 +461,37 @@ export class Board {
   }
 
   drawBuildings(ctx, time) {
+    const drawn = new Set();
+    for (const destination of this.state.buildings.filter(item => item.type === 'destination')) {
+      const id = destination.parkingId || destination.id;
+      if (drawn.has(id)) continue;
+      drawn.add(id);
+      const peers = this.state.buildings.filter(item => item.type === 'destination' && (item.parkingId || item.id) === id);
+      const x = Math.min(...peers.map(item => item.x));
+      ctx.save(); ctx.translate(x + 0.5, destination.y + 0.5);
+      ctx.fillStyle = '#abb3a7';
+      roundedRect(ctx, -0.47, -0.48, peers.length - 0.06, 0.96, 0.13); ctx.fill();
+      ctx.strokeStyle = '#f5f4df'; ctx.lineWidth = 0.035;
+      for (let i = 0; i < peers.length * 3; i++) {
+        ctx.beginPath(); ctx.moveTo(-0.35 + i * 0.29, -0.38); ctx.lineTo(-0.35 + i * 0.29, -0.12); ctx.stroke();
+      }
+      ctx.fillStyle = '#f5f4df'; ctx.font = '600 0.24px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText('P', (peers.length - 1) / 2, 0.32);
+      ctx.restore();
+    }
     for (const building of this.state.buildings || []) {
       const colors = COLORS[building.color] || COLORS.coral;
       ctx.save();
       ctx.translate(building.x + 0.5, building.y + 0.5);
       if (building.type === 'home') this.drawHome(ctx, colors, building);
-      else this.drawDestination(ctx, building, colors, time);
+      else { ctx.translate(0, -1); this.drawDestination(ctx, building, colors, time); }
       ctx.restore();
     }
   }
 
   drawHome(ctx, colors, building) {
-    const road = (this.state.roads || []).find(entry => !entry.pendingRemoval && (sameCell(entry.a, building) || sameCell(entry.b, building)));
-    if (road) {
+    const driveways = (this.state.roads || []).filter(entry => !entry.pendingRemoval && (sameCell(entry.a, building) || sameCell(entry.b, building)));
+    for (const road of driveways) {
       const exit = sameCell(road.a, building) ? road.b : road.a;
       const length = Math.hypot(exit.x - building.x, exit.y - building.y);
       const dx = (exit.x - building.x) / length;

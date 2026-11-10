@@ -65,6 +65,7 @@ function roadAction(a, b, erase = false) {
     if (result.pending) toast('灰色道路等待車輛返家後，才會回收資源。');
     updateUI();
   } else if (!result.ok && result.reason && (!erase || result.reason !== '這裡沒有道路')) toast(result.reason);
+  return result;
 }
 
 const board = new Board($('game-canvas'), {
@@ -174,7 +175,7 @@ function welcome() {
 
 function showHelp() {
   showModal('help', `<div class="modal-card"><span class="modal-eyebrow">HOW TO PLAY</span><h2 id="dialog-title">讓日常，流動起來。</h2>
-    <ol class="help-steps"><li><strong>連接同色建築</strong><span>每戶有兩台車、一個出入口。拖曳連接同色目的地；有需求才會出發，每趟服務後返家。</span></li>
+    <ol class="help-steps"><li><strong>連接同色建築</strong><span>每戶有兩台車，可往各方向畫直線或斜線。拖曳連接同色目的地下方的停車場；有需求才會出發，每趟服務後返家。</span></li>
     <li><strong>留意等待需求</strong><span>目的地的圓點代表等待中的旅客。外圈越滿越危險，擁塞太久就會結束。</span></li>
     <li><strong>放大，畫得更精準</strong><span>雙指張開或捏合縮放，雙指拖曳平移。選「移動」可單指平移；回到「鋪路」繼續建設。點百分比回到全圖。</span></li>
     <li><strong>善用有限資源</strong><span>每段路花費一道路；跨河另需橋梁。拆除中的灰色路段，要等車輛返家才回收。</span></li>
@@ -187,7 +188,7 @@ function showHelp() {
 function showUpgrade() {
   history = [];
   showModal('upgrade', `<div class="modal-card"><span class="modal-eyebrow">A NEW WEEK, NEW POSSIBILITIES</span><h2 id="dialog-title">迎接第 ${state.week + 1} 週，<br>小城長大了一點。</h2><p>做得好！選擇本週補給，為新的日常留出空間。</p>
-  <div class="upgrade-options"><button class="upgrade-card" data-upgrade="roads"><span class="upgrade-symbol">╋</span><strong>更多道路</strong><span>＋25 道路</span></button><button class="upgrade-card" data-upgrade="bridge"><span class="upgrade-symbol">≋</span><strong>橋梁補給</strong><span>＋15 道路 · ＋2 橋梁</span></button></div></div>`);
+  <div class="upgrade-options"><button class="upgrade-card" data-upgrade="roads"><span class="upgrade-symbol">╋</span><strong>更多道路</strong><span>＋12 道路</span></button><button class="upgrade-card" data-upgrade="bridge"><span class="upgrade-symbol">≋</span><strong>橋梁補給</strong><span>＋8 道路 · ＋1 橋梁</span></button></div></div>`);
   $('modal').querySelectorAll('[data-upgrade]').forEach(button => button.onclick = () => {
     const result = applyUpgrade(state, button.dataset.upgrade);
     if (result.ok) { closeModal(); save(); playTone(660); toast('補給抵達，繼續你的城市故事。'); }

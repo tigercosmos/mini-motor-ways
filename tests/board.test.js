@@ -309,9 +309,9 @@ test('the pan tool supports one finger and mouse while keeping map edges reachab
   assert.equal(board.offsetX, 8);
   assert.equal(board.offsetY, 8);
   dispatchAt('pointermove', -10000, -10000, 2, 'mouse');
-  assert.equal(board.offsetX, board.width - 56 - state.cols * board.cell);
+  assert.equal(board.offsetX, board.width - 8 - state.cols * board.cell);
   assert.equal(board.offsetY, board.height - 8 - state.rows * board.cell);
-  assert.ok(board.cellToPoint({ x: state.cols - 1, y: 8 }).x < board.width - 56);
+  assert.ok(board.cellToPoint({ x: state.cols - 1, y: 8 }).x < board.width - 8);
   dispatchAt('pointerup', -10000, -10000, 2, 'mouse');
   assert.equal(roads.length, 0);
 });
@@ -409,4 +409,15 @@ test('page lifecycle cancellation discards stale contacts so the next gesture is
   dispatch('pointerup', { x: 3, y: 1 }, 30);
   assert.equal(roads.length, 2);
   assert.equal(gestures(), 2);
+});
+
+test('in-place map growth updates drawing scale and keeps new cells reachable', t => {
+  const { board, state, bounds } = fixture(t);
+  const before = board.cell;
+  state.cols += 4; state.rows += 4;
+  board.render(0);
+  assert.ok(board.cell < before);
+  const cell = { x: state.cols - 1, y: state.rows - 1 };
+  const point = board.cellToPoint(cell);
+  assert.deepEqual(board.pointToCell(bounds.left + point.x, bounds.top + point.y), cell);
 });

@@ -58,7 +58,7 @@
           <span class="eyebrow">THE LITTLE THINGS</span>
           <div class="guide-line"><span class="guide-home"><svg aria-hidden="true"><use href="#i-home" /></svg></span><span class="guide-path"></span><span class="guide-destination"><svg aria-hidden="true"><use href="#i-pin" /></svg></span></div>
           <p>讓同色的家，<br />找到同色的目的地。</p>
-          <div class="color-key" aria-label="三種通勤顏色"><span class="color-dot coral"></span><span class="color-dot teal"></span><span class="color-dot gold"></span><span>每一趟抵達，都值得。</span></div>
+          <div class="color-key" aria-label="逐步解鎖的通勤顏色"><span class="color-dot coral"></span><span class="color-dot teal"></span><span class="color-dot gold"></span><span>每一趟抵達，都值得。</span></div>
         </div>
         <div class="personal-best"><span class="eyebrow">PERSONAL BEST</span><div><strong id="best-value">0</strong><span>趟旅程</span></div></div>
         <button id="restart-btn" class="restart-button" type="button"><svg aria-hidden="true"><use href="#i-restart" /></svg><span>重新開始</span></button>
@@ -73,7 +73,11 @@
         </div>
         <div class="map-container">
           <div class="map-top-label" aria-hidden="true"><span class="map-coordinate">35° N · 139° E</span><span class="map-north">N <span>↑</span></span></div>
-          <canvas id="game-canvas" tabindex="0" role="application" aria-label="城市地圖。單指拖曳鋪路，連接同色住宅與目的地；雙指縮放或移動地圖，也可選取移動地圖工具後單指拖曳。右側按鈕可放大、縮小及重設視野。空白鍵暫停遊戲，R 鋪路，E 拆除。"></canvas>
+          <canvas id="game-canvas" tabindex="0" role="application" aria-label="城市地圖。單指拖曳鋪路，連接同色住宅與目的地；雙指縮放或移動地圖，也可選取移動地圖工具後單指拖曳。下方按鈕可放大、縮小及重設視野。空白鍵暫停遊戲，R 鋪路，E 拆除。"></canvas>
+          <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+          <div class="map-bottom-label" aria-hidden="true"><span>RIVERSIDE</span><span>一座正在長大的小城</span></div>
+        </div>
+        <div class="controls-area">
           <div class="camera-controls" role="group" aria-label="地圖視野控制">
             <button id="zoom-in-btn" class="camera-button" type="button" aria-label="放大地圖" title="放大地圖"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
             <button id="reset-view-btn" class="camera-button reset-view-button" type="button" aria-label="重設地圖視野" title="重設地圖視野"><span id="zoom-value">100%</span><span class="camera-caption">全覽</span></button>
@@ -81,10 +85,7 @@
             <span class="camera-divider" aria-hidden="true"></span>
             <button id="pan-btn" class="camera-button pan-button" type="button" aria-label="移動地圖" aria-pressed="false" title="移動地圖：單指拖曳"><svg aria-hidden="true"><use href="#i-pan"/></svg><span class="camera-caption">移動</span></button>
           </div>
-          <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-          <div class="map-bottom-label" aria-hidden="true"><span>RIVERSIDE</span><span>一座正在長大的小城</span></div>
-        </div>
-        <div class="controls-area">
+
           <div class="resources" aria-label="可用建設資源">
             <div class="resource"><svg aria-hidden="true"><use href="#i-road" /></svg><strong id="roads-value">35</strong><span>道路</span></div>
             <span class="resource-divider"></span>

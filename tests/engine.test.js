@@ -4,7 +4,7 @@ import { createGame, addRoad, removeRoad, getRoute, stepGame, applyUpgrade, seri
 
 test('starter route connects matching buildings; unrelated buildings stay disconnected', () => {
   const game = createGame(7);
-  assert.equal(game.roadTiles, 35);
+  assert.equal(game.roadTiles, 18);
   assert.equal(getRoute(game, 'h1', 'd1').length, 7);
   assert.equal(getRoute(game, 'h3', 'd2'), null);
   assert.deepEqual(createGame(7), game);
@@ -13,12 +13,12 @@ test('starter route connects matching buildings; unrelated buildings stay discon
 test('resource spending, duplicate edges, bridge cost and refunds are exact', () => {
   const game = createGame(7), a = { x: 1, y: 7 }, b = { x: 1, y: 8 };
   assert.equal(addRoad(game, a, b).ok, true);
-  assert.equal(game.bridges, 1); assert.equal(game.roadTiles, 34);
+  assert.equal(game.bridges, 0); assert.equal(game.roadTiles, 17);
   assert.equal(addRoad(game, b, a).existing, true);
   assert.equal(addRoad(game, b, a).changed, false);
-  assert.equal(game.bridges, 1); assert.equal(game.roadTiles, 34);
+  assert.equal(game.bridges, 0); assert.equal(game.roadTiles, 17);
   assert.equal(removeRoad(game, b, a).ok, true);
-  assert.equal(game.bridges, 2); assert.equal(game.roadTiles, 35);
+  assert.equal(game.bridges, 1); assert.equal(game.roadTiles, 18);
   game.roadTiles = 0;
   assert.equal(addRoad(game, a, b).ok, false);
   game.roadTiles = 10; game.bridges = 0;
@@ -28,18 +28,18 @@ test('resource spending, duplicate edges, bridge cost and refunds are exact', ()
 test('one complete river crossing consumes one bridge and refunds only when its water cell is unused', () => {
   const game = createGame(7), bank = { x: 1, y: 7 }, river = { x: 1, y: 8 }, opposite = { x: 1, y: 9 };
   addRoad(game, bank, river); addRoad(game, river, opposite);
-  assert.equal(game.bridges, 1);
-  removeRoad(game, bank, river); assert.equal(game.bridges, 1);
-  removeRoad(game, river, opposite); assert.equal(game.bridges, 2);
+  assert.equal(game.bridges, 0);
+  removeRoad(game, bank, river); assert.equal(game.bridges, 0);
+  removeRoad(game, river, opposite); assert.equal(game.bridges, 1);
 });
 
-test('invalid segments, diagonal river bypass and crossing diagonals are rejected', () => {
+test('invalid segments are rejected; diagonal bridges and crossing diagonals are allowed', () => {
   const game = createGame(7);
   assert.equal(addRoad(game, { x: -1, y: 0 }, { x: 0, y: 0 }).ok, false);
   assert.equal(addRoad(game, { x: 1, y: 1 }, { x: 3, y: 1 }).ok, false);
-  assert.equal(addRoad(game, { x: 4, y: 9 }, { x: 5, y: 10 }).ok, false);
+  assert.equal(addRoad(game, { x: 4, y: 9 }, { x: 5, y: 10 }).ok, true);
   assert.equal(addRoad(game, { x: 0, y: 0 }, { x: 1, y: 1 }).ok, true);
-  assert.equal(addRoad(game, { x: 1, y: 0 }, { x: 0, y: 1 }).ok, false);
+  assert.equal(addRoad(game, { x: 1, y: 0 }, { x: 0, y: 1 }).ok, true);
 });
 
 test('connected homes send moving cars, deliver trips and return home', () => {
@@ -105,23 +105,23 @@ test('pending removal can be canceled without spending or refunding a tile twice
   stepGame(game, 8); assert.equal(game.roadTiles, count);
 });
 
-test('homes have one active driveway while pending old driveways remain usable by existing cars', () => {
+test('homes allow new directions while pending old roads remain usable by existing cars', () => {
   const game = createGame(7), home = { x: 2, y: 3 }, old = { x: 3, y: 3 }, fresh = { x: 2, y: 4 };
-  assert.equal(addRoad(game, home, fresh).ok, false);
+  assert.equal(addRoad(game, home, fresh).ok, true);
   stepGame(game, 1); assert.equal(removeRoad(game, home, old).pending, true);
   assert.equal(addRoad(game, home, fresh).ok, true);
-  assert.equal(addRoad(game, home, old).ok, false);
+  assert.equal(addRoad(game, home, old).ok, true);
   assert.equal(game.cars.length, 1);
 });
 
 test('a long bent bridge uses one span, rejects branches, and refunds after the last segment', () => {
   const game = createGame(7), route = [{ x: 1, y: 7 }, { x: 1, y: 8 }, { x: 2, y: 8 }, { x: 3, y: 8 }, { x: 3, y: 9 }];
   for (let i = 1; i < route.length; i++) assert.equal(addRoad(game, route[i - 1], route[i]).ok, true);
-  assert.equal(game.bridges, 1);
+  assert.equal(game.bridges, 0);
   assert.equal(addRoad(game, { x: 2, y: 8 }, { x: 2, y: 7 }).ok, false);
   for (let i = 1; i < route.length; i++) {
     assert.equal(removeRoad(game, route[i - 1], route[i]).ok, true);
-    assert.equal(game.bridges, i === route.length - 1 ? 2 : 1);
+    assert.equal(game.bridges, i === route.length - 1 ? 1 : 0);
   }
 });
 
@@ -136,7 +136,7 @@ test('splitting a bridge requires an extra bridge and rejoining restores that re
 });
 
 test('pending bridge splits reserve resources until the full roundtrip clears the old span', () => {
-  const game = createGame(7); game.roads = []; game.roadTiles = 50;
+  const game = createGame(7); game.roads = []; game.roadTiles = 50; game.bridges = 2;
   Object.assign(game.buildings.find(item => item.id === 'h1'), { x: 1, y: 7 });
   Object.assign(game.buildings.find(item => item.id === 'd1'), { x: 3, y: 9 });
   const route = [{ x: 1, y: 7 }, { x: 1, y: 8 }, { x: 2, y: 8 }, { x: 3, y: 8 }, { x: 3, y: 9 }];
@@ -185,7 +185,7 @@ test('weekly supplies pause the simulation and can only be claimed once', () => 
   const elapsed = game.elapsed, roads = game.roadTiles;
   stepGame(game, 10); assert.equal(game.elapsed, elapsed);
   assert.equal(applyUpgrade(game, 'bridge').ok, true);
-  assert.equal(game.roadTiles, roads + 15); assert.equal(game.bridges, 4); assert.equal(game.week, 2);
+  assert.equal(game.roadTiles, roads + 8); assert.equal(game.bridges, 2); assert.equal(game.week, 2);
   assert.equal(applyUpgrade(game, 'roads').ok, false);
 });
 
@@ -239,8 +239,65 @@ test('undoing mixed land and river edits conserves all resources', () => {
 
 test('seeded expansion avoids water, roads and existing building cells', () => {
   const game = createGame(42); stepGame(game, 36);
-  assert.equal(game.buildings.length, 7);
+  assert.equal(game.buildings.length, 8);
   const newest = game.buildings.at(-1);
   assert.ok(!game.water.some(cell => cell.x === newest.x && cell.y === newest.y));
   assert.ok(!game.roads.some(road => [road.a, road.b].some(cell => cell.x === newest.x && cell.y === newest.y)));
+});
+
+test('all eight home directions accept roads and diagonal river corners consume a bridge', () => {
+  const game = createGame(9); game.roads = [];
+  const home = game.buildings[0];
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+    if (dx || dy) assert.equal(addRoad(game, home, { x: home.x + dx, y: home.y + dy }).ok, true);
+  }
+  const a = { x: 4, y: 9 }, b = { x: 5, y: 10 };
+  assert.equal(addRoad(game, a, b).ok, true);
+  assert.equal(game.bridges, 0);
+  assert.equal(removeRoad(game, a, b).ok, true);
+  assert.equal(game.bridges, 1);
+  assert.ok(restoreGame(serializeGame(game)));
+});
+
+test('growth adds repeated colors, shared lots, five colors and a larger restorable map', () => {
+  for (const seed of [7, 42, 100]) {
+    const game = createGame(seed);
+    for (let seconds = 0; seconds < 420; seconds++) {
+      // Isolate growth from loss caused by deliberately unconnected demand.
+      for (const item of game.buildings) { item.demand = 0; item.stress = 0; }
+      if (game.status === 'upgrade') applyUpgrade(game, 'roads');
+      stepGame(game, 1);
+    }
+    const destinations = game.buildings.filter(item => item.type === 'destination');
+    assert.ok(destinations.length > 8);
+    assert.equal(new Set(destinations.map(item => item.color)).size, 5);
+    assert.ok(destinations.filter(item => item.color === 'coral').length > 1);
+    assert.ok(game.cols > 13 && game.rows > 17);
+    assert.deepEqual(restoreGame(serializeGame(game)), game);
+    const paired = destinations.find(item => item.parkingId);
+    assert.ok(paired);
+    const peer = destinations.find(item => item !== paired && item.parkingId === paired.parkingId);
+    assert.notEqual(peer.color, paired.color);
+    assert.equal(getRoute(game, paired.id, peer.id).length, 2);
+  }
+});
+
+test('a matching car can enter either side of a shared parking lot and return after save', () => {
+  const game = createGame(7); game.roads = []; game.water = [];
+  const home = game.buildings.find(item => item.id === 'h1');
+  const first = game.buildings.find(item => item.id === 'd1');
+  const second = game.buildings.find(item => item.id === 'd2');
+  Object.assign(home, { x: 5, y: 6 });
+  Object.assign(first, { x: 5, y: 4, parkingId: 'lot' });
+  Object.assign(second, { x: 6, y: 4, parkingId: 'lot' });
+  addRoad(game, home, { x: 6, y: 5 });
+  addRoad(game, { x: 6, y: 5 }, second);
+  assert.equal(getRoute(game, home.id, first.id).length, 4);
+  stepGame(game, 0.5);
+  const restored = restoreGame(serializeGame(game)); assert.ok(restored);
+  stepGame(restored, 5);
+  assert.equal(restored.score, 1);
+  assert.equal(restored.cars.length, 0);
+  second.x = 10;
+  assert.equal(restoreGame(serializeGame(game)), null);
 });

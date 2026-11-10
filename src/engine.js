@@ -1,4 +1,4 @@
-const COLORS = ['coral', 'teal', 'gold'];
+const COLORS = ['coral', 'teal', 'gold', 'blue', 'purple'];
 const STEP = 0.05;
 const key = p => `${p.x},${p.y}`;
 const same = (a, b) => a.x === b.x && a.y === b.y;
@@ -22,7 +22,7 @@ export function createGame(seed = Date.now()) {
     version: 2, cols: 13, rows: 17, seed: normalizedSeed, rng: normalizedSeed,
     buildings: [building('h1', 'home', 'coral', 2, 3), building('h2', 'home', 'coral', 3, 6), building('d1', 'destination', 'coral', 7, 4), building('h3', 'home', 'teal', 10, 11), building('h4', 'home', 'teal', 7, 14), building('d2', 'destination', 'teal', 3, 12)],
     roads: [], cars: [], water: [], score: 0, elapsed: 0, week: 1,
-    roadTiles: 41, bridges: 2, status: 'playing', upgradeChoices: ['roads', 'bridge'],
+    roadTiles: 24, bridges: 1, status: 'playing', upgradeChoices: ['roads', 'bridge'],
     message: '', nextCarId: 1, nextBuildingId: 7, nextExpansion: 35, dispatchClock: 0,
   };
   for (let x = 0; x < state.cols; x++) {
@@ -36,12 +36,28 @@ export function createGame(seed = Date.now()) {
   return state;
 }
 
+function roadWater(state, road) {
+  const points = [road.a, road.b];
+  if (road.a.x !== road.b.x && road.a.y !== road.b.y) points.push({ x: road.a.x, y: road.b.y }, { x: road.b.x, y: road.a.y });
+  return points.filter(point => isWater(state, point));
+}
+
+function parkingLinks(state) {
+  const links = [];
+  for (const item of state.buildings) {
+    if (!item.parkingId) continue;
+    const peer = state.buildings.find(other => other.id !== item.id && other.parkingId === item.parkingId);
+    if (peer && item.id < peer.id) links.push({ a: { x: item.x, y: item.y }, b: { x: peer.x, y: peer.y } });
+  }
+  return links;
+}
+
 function bridgeSpans(state, roads = state.roads) {
   const graph = new Map();
   for (const road of roads) {
-    const water = [road.a, road.b].filter(point => isWater(state, point));
+    const water = roadWater(state, road);
     for (const point of water) if (!graph.has(key(point))) graph.set(key(point), []);
-    if (water.length === 2) { graph.get(key(water[0])).push(key(water[1])); graph.get(key(water[1])).push(key(water[0])); }
+    for (const point of water) graph.get(key(point)).push(...water.filter(other => !same(other, point)).map(key));
   }
   const seen = new Set(); let count = 0;
   for (const point of graph.keys()) {
@@ -79,20 +95,13 @@ export function addRoad(state, a, b) {
   if ((!dx && !dy) || dx > 1 || dy > 1) return { ok: false, reason: '請連接相鄰的格子' };
   const existing = state.roads.find(road => segmentKey(road.a, road.b) === segmentKey(a, b));
   if (existing && !existing.pendingRemoval) return { ok: true, existing: true, changed: false };
-  for (const point of [a, b]) {
-    if (state.buildings.some(item => item.type === 'home' && same(item, point)) && state.roads.some(road => road !== existing && !road.pendingRemoval && incident(road, point))) return { ok: false, reason: '住宅只能有一個出入口，請先拆除舊連接' };
-  }
   if (existing) {
     const proposed = state.roads.map(road => road === existing ? { ...road, pendingRemoval: false } : road);
     if (bridgeReserve(state, proposed) > state.bridges) return { ok: false, reason: '恢復這段橋梁需要額外橋梁，請先恢復相鄰路段' };
     existing.pendingRemoval = false; return { ok: true, changed: true, restored: true };
   }
   if (state.roadTiles < 1) return { ok: false, reason: '道路用完了，移除舊道路可回收' };
-  const bridge = isWater(state, a) || isWater(state, b);
-  if (dx && dy) {
-    if (bridge || isWater(state, { x: a.x, y: b.y }) || isWater(state, { x: b.x, y: a.y })) return { ok: false, reason: '過河時請沿水平或垂直格線鋪橋' };
-    if (state.roads.some(road => road.a.x + road.b.x === a.x + b.x && road.a.y + road.b.y === a.y + b.y && Math.abs(road.a.x - road.b.x) === 1 && Math.abs(road.a.y - road.b.y) === 1)) return { ok: false, reason: '斜向道路不能交叉，請共用路口' };
-  }
+  const bridge = roadWater(state, { a, b }).length > 0;
   if ([a, b].some(point => isWater(state, point) && state.roads.filter(road => incident(road, point)).length >= 2)) return { ok: false, reason: '橋梁不能分岔，請在陸地設置路口' };
   const road = { a: { ...a }, b: { ...b }, bridge, pendingRemoval: false };
   const proposed = [...state.roads, road];
@@ -123,7 +132,7 @@ export function getRoute(state, fromId, toId) {
   const to = state.buildings.find(item => item.id === toId);
   if (!from || !to) return null;
   const graph = new Map();
-  for (const road of state.roads) {
+  for (const road of [...state.roads, ...parkingLinks(state)]) {
     if (road.pendingRemoval) continue;
     const a = key(road.a), b = key(road.b);
     if (!graph.has(a)) graph.set(a, []);
@@ -131,7 +140,7 @@ export function getRoute(state, fromId, toId) {
     graph.get(a).push(road.b);
     graph.get(b).push(road.a);
   }
-  const blocked = new Set(state.buildings.filter(item => item.id !== fromId && item.id !== toId).map(key));
+  const blocked = new Set(state.buildings.filter(item => item.type === 'home' && item.id !== fromId && item.id !== toId).map(key));
   const origin = key(from), target = key(to), distances = new Map([[origin, 0]]), previous = new Map(), pending = [{ x: from.x, y: from.y }];
   const visited = new Set();
   while (pending.length) {
@@ -162,6 +171,8 @@ function vacantCell(state, color, type) {
   for (let attempt = 0; attempt < 100; attempt++) {
     const point = { x: 1 + Math.floor(random(state) * (state.cols - 2)), y: 1 + Math.floor(random(state) * (state.rows - 2)) };
     if (isWater(state, point)) continue;
+    if (type === 'destination' && (isWater(state, { x: point.x, y: point.y - 1 }) || state.roads.some(road => incident(road, { x: point.x, y: point.y - 1 })))) continue;
+    if (state.buildings.some(item => item.type === 'destination' && distance({ x: item.x, y: item.y - 1 }, point) < 2.1)) continue;
     if (state.buildings.some(item => distance(item, point) < 2.1)) continue;
     if (state.roads.some(road => same(road.a, point) || same(road.b, point))) continue;
     // New pairs start on the same bank; bridges remain a routing choice.
@@ -172,20 +183,37 @@ function vacantCell(state, color, type) {
 }
 
 function expand(state) {
-  if (state.buildings.length >= 18) return;
+  const wave = Math.floor(state.elapsed / 35);
+  // Grow outward without moving existing roads, trips, or building coordinates.
+  const cols = Math.min(29, 13 + 2 * Math.floor(wave / 2));
+  const rows = Math.min(33, 17 + 2 * Math.floor(wave / 2));
+  for (let x = state.cols; x < cols; x++) state.water.push({ x, y: 8 });
+  state.cols = Math.max(state.cols, cols); state.rows = Math.max(state.rows, rows);
+  if (state.buildings.length >= 100) return;
   const colors = [...new Set(state.buildings.map(item => item.color))];
-  const color = colors.length < 3 && state.elapsed >= 65 ? 'gold' : COLORS[Math.floor(random(state) * colors.length)];
-  const needsPair = !state.buildings.some(item => item.color === color);
+  const unlocked = Math.min(COLORS.length, 2 + Math.floor(state.elapsed / 105));
+  const color = colors.length < unlocked ? COLORS.find(item => !colors.includes(item)) : colors[(Math.max(1, wave) - 1) % colors.length];
   const point = vacantCell(state, color, 'home');
   if (!point) return;
   const home = building(`b${state.nextBuildingId++}`, 'home', color, point.x, point.y);
   state.buildings.push(home);
-  if (needsPair) {
-    const target = vacantCell(state, color, 'destination');
-    if (target) state.buildings.push(building(`b${state.nextBuildingId++}`, 'destination', color, target.x, target.y));
-    else { state.buildings.pop(); return; }
+  let target = null, partner = null;
+  // Every other opening can extend an existing lot with a different-color shop.
+  if (wave % 2 === 0) {
+    for (const candidate of state.buildings.filter(item => item.type === 'destination' && item.color !== color && !item.parkingId)) {
+      const cell = { x: candidate.x + 1, y: candidate.y };
+      const footprint = [cell, { x: cell.x, y: cell.y - 1 }];
+      if (footprint.some(p => !inside(state, p) || isWater(state, p) || state.roads.some(road => incident(road, p)))) continue;
+      if (state.buildings.some(item => item !== candidate && footprint.some(p => distance(item, p) < 1.6))) continue;
+      target = cell; partner = candidate; break;
+    }
   }
-  state.message = needsPair ? '新商圈開幕，連接黃色住宅與目的地' : '新住宅加入了，替它接上道路吧';
+  target ||= vacantCell(state, color, 'destination');
+  if (!target) { state.buildings.pop(); return; }
+  const destination = building(`b${state.nextBuildingId++}`, 'destination', color, target.x, target.y);
+  if (partner) { partner.parkingId = partner.id; destination.parkingId = partner.id; }
+  state.buildings.push(destination);
+  state.message = partner ? '雙色商圈開幕，共用同一座停車場' : '新目的地開幕，替同色住宅接上停車場吧';
 }
 
 function dispatch(state) {
@@ -290,9 +318,9 @@ export function stepGame(state, dtSeconds) {
 export function applyUpgrade(state, kind) {
   if (state.status !== 'upgrade') return { ok: false, reason: '每週結束後才能領取補給' };
   if (!state.upgradeChoices.includes(kind)) return { ok: false, reason: '請選擇道路或橋梁補給' };
-  state.roadTiles += kind === 'roads' ? 25 : 15;
-  if (kind === 'bridge') state.bridges += 2;
-  state.week++; state.status = 'playing'; state.message = kind === 'roads' ? '收到 25 段道路，繼續建造吧' : '收到 15 段道路與 2 段橋梁';
+  state.roadTiles += kind === 'roads' ? 12 : 8;
+  if (kind === 'bridge') state.bridges += 1;
+  state.week++; state.status = 'playing'; state.message = kind === 'roads' ? '收到 12 段道路，繼續建造吧' : '收到 8 段道路與 1 段橋梁';
   return { ok: true };
 }
 
@@ -302,17 +330,17 @@ export function serializeGame(state) { return JSON.stringify(state); }
 export function restoreGame(json) {
   try {
     const state = typeof json === 'string' ? JSON.parse(json) : JSON.parse(JSON.stringify(json));
-    if (!state || ![1, 2].includes(state.version) || state.cols !== 13 || state.rows !== 17 || !['playing', 'upgrade', 'gameover'].includes(state.status)) return null;
+    if (!state || ![1, 2].includes(state.version) || !Number.isInteger(state.cols) || !Number.isInteger(state.rows) || state.cols < 13 || state.cols > 29 || state.rows < 17 || state.rows > 33 || !['playing', 'upgrade', 'gameover'].includes(state.status)) return null;
     if (!Array.isArray(state.buildings) || !Array.isArray(state.roads) || !Array.isArray(state.cars) || !Array.isArray(state.water)) return null;
-    if (state.buildings.length < 6 || state.buildings.length > 18 || state.roads.length > 1000 || state.cars.length > 30 || state.water.length > 221) return null;
+    if (state.buildings.length < 6 || state.buildings.length > 100 || state.roads.length > 1000 || state.cars.length > 200 || state.water.length > 957) return null;
     for (const field of ['seed', 'rng', 'score', 'elapsed', 'week', 'roadTiles', 'bridges', 'nextCarId', 'nextBuildingId', 'nextExpansion', 'dispatchClock']) if (!Number.isFinite(state[field]) || state[field] < 0) return null;
     if (!Number.isInteger(state.week) || state.week < 1 || !Number.isInteger(state.roadTiles) || !Number.isInteger(state.bridges)) return null;
     if (!state.buildings.every(item => inside(state, item) && typeof item.id === 'string' && ['home', 'destination'].includes(item.type) && COLORS.includes(item.color) && ['demand', 'stress', 'capacity', 'demandClock', 'cooldown'].every(field => Number.isFinite(item[field]) && item[field] >= 0) && item.capacity > 0 && item.stress <= 1)) return null;
     if (new Set(state.buildings.map(item => item.id)).size !== state.buildings.length) return null;
     if (!state.water.every(point => inside(state, point))) return null;
     if (!state.roads.every(road => inside(state, road.a) && inside(state, road.b) && distance(road.a, road.b) > 0 && distance(road.a, road.b) <= Math.SQRT2 && typeof road.bridge === 'boolean' && (road.pendingRemoval === undefined || typeof road.pendingRemoval === 'boolean'))) return null;
-    const roadKeys = new Set(state.roads.map(road => segmentKey(road.a, road.b)));
-    if (!state.cars.every(car => typeof car.id === 'string' && COLORS.includes(car.color) && ['x', 'y', 'angle', 'progress', 'stopTime'].every(field => Number.isFinite(car[field])) && car.progress >= 0 && car.progress < 1 && car.x >= 0 && car.x < state.cols && car.y >= 0 && car.y < state.rows && typeof car.returning === 'boolean' && Array.isArray(car.route) && car.route.length > 1 && car.route.length <= 221 && car.route.every((point, i) => inside(state, point) && (i === 0 || roadKeys.has(segmentKey(car.route[i - 1], point)))) && Number.isInteger(car.segment) && car.segment >= 0 && car.segment < car.route.length - 1 && state.buildings.some(item => item.id === car.homeId && item.type === 'home' && item.color === car.color) && state.buildings.some(item => item.id === car.destinationId && item.type === 'destination' && item.color === car.color))) return null;
+    const roadKeys = new Set([...state.roads, ...parkingLinks(state)].map(road => segmentKey(road.a, road.b)));
+    if (!state.cars.every(car => typeof car.id === 'string' && COLORS.includes(car.color) && ['x', 'y', 'angle', 'progress', 'stopTime'].every(field => Number.isFinite(car[field])) && car.progress >= 0 && car.progress < 1 && car.x >= 0 && car.x < state.cols && car.y >= 0 && car.y < state.rows && typeof car.returning === 'boolean' && Array.isArray(car.route) && car.route.length > 1 && car.route.length <= 957 && car.route.every((point, i) => inside(state, point) && (i === 0 || roadKeys.has(segmentKey(car.route[i - 1], point)))) && Number.isInteger(car.segment) && car.segment >= 0 && car.segment < car.route.length - 1 && state.buildings.some(item => item.id === car.homeId && item.type === 'home' && item.color === car.color) && state.buildings.some(item => item.id === car.destinationId && item.type === 'destination' && item.color === car.color))) return null;
     if (!Array.isArray(state.upgradeChoices) || state.upgradeChoices.length !== 2 || !state.upgradeChoices.includes('roads') || !state.upgradeChoices.includes('bridge')) return null;
     if (state.cars.some(car => car.junction != null && !inside(state, car.junction))) return null;
     if (state.version === 1) {
@@ -330,7 +358,10 @@ export function restoreGame(json) {
       finishRoadRemovals(state);
     }
     if (state.buildings.some(home => home.type === 'home' && state.cars.filter(car => car.homeId === home.id).length > 2)) return null;
-    if (state.buildings.some(home => home.type === 'home' && state.roads.filter(road => !road.pendingRemoval && incident(road, home)).length > 1)) return null;
+    for (const item of state.buildings.filter(item => item.parkingId != null)) {
+      const peers = state.buildings.filter(other => other.parkingId === item.parkingId);
+      if (typeof item.parkingId !== 'string' || item.type !== 'destination' || peers.length !== 2 || peers.some(peer => peer.type !== 'destination') || peers[0].color === peers[1].color || peers[0].y !== peers[1].y || Math.abs(peers[0].x - peers[1].x) !== 1) return null;
+    }
     if (state.water.some(point => state.roads.filter(road => !road.pendingRemoval && incident(road, point)).length > 2)) return null;
     if (bridgeReserve(state) > state.bridges) return null;
     return state;
