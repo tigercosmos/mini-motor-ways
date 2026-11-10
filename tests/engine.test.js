@@ -497,3 +497,19 @@ test('retired legacy bridge branches cannot be restored into an invalid save', (
   assert.equal(addRoad(restored, a, b).ok, false);
   assert.ok(restoreGame(serializeGame(restored)));
 });
+
+test('an empty branch never slows a lone car on approach, crossing, or departure', () => {
+  const game = createGame(7);
+  game.buildings = [];
+  const route = [{ x: 3, y: 4 }, { x: 4, y: 4 }, { x: 5, y: 4 }, { x: 6, y: 4 }];
+  game.roads = route.slice(1).map((b, i) => ({ a: route[i], b }));
+  game.roads.push({ a: { x: 4, y: 4 }, b: { x: 4, y: 3 } });
+  game.cars = [{ id: 'solo', route, segment: 0, progress: 0.5, x: 3.5, y: 4, angle: 0, stopTime: 0 }];
+  const plain = structuredClone(game);
+  plain.roads.pop();
+  for (let i = 0; i < 16; i++) {
+    stepGame(game, 0.05); stepGame(plain, 0.05);
+    assert.equal(game.cars[0].x, plain.cars[0].x);
+    assert.equal(game.cars[0].progress, plain.cars[0].progress);
+  }
+});

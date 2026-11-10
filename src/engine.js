@@ -289,7 +289,7 @@ function advanceCars(state, dt) {
   }
   for (const car of state.cars) {
     if (car.stopTime > 0) { car.stopTime -= dt; continue; }
-    let movement = 2.3 * dt;
+    const movement = 2.3 * dt;
     const start = car.route[car.segment], end = car.route[car.segment + 1];
     if (!start || !end) { completed.add(car.id); continue; }
     // Conservative single-car junction reservation. This approximates negotiation;
@@ -298,7 +298,6 @@ function advanceCars(state, dt) {
       if (state.cars.some(other => other.id !== car.id && other.junction && same(other.junction, end))) continue;
       car.junction = { ...end };
     }
-    if (car.junction) movement = 1.15 * dt;
     const angle = Math.atan2(end.y - start.y, end.x - start.x);
     // Same-direction vehicles keep a visible gap, including shared bottlenecks.
     const blocked = state.cars.some(other => {
