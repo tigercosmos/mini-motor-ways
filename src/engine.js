@@ -1,5 +1,7 @@
 const COLORS = ['coral', 'teal', 'gold', 'blue', 'purple'];
 const STEP = 0.05;
+const HOME_GROWTH_INTERVAL = 20;
+const HOMES_PER_DESTINATION = 2;
 const SHOP_SIDES = { north: [0, -1], south: [0, 1], west: [-1, 0], east: [1, 0] };
 export function shopCell(destination) {
   const [dx, dy] = SHOP_SIDES[destination.shopSide || 'north'];
@@ -30,7 +32,7 @@ export function createGame(seed = Date.now()) {
     buildings: [building('h1', 'home', 'coral', 2, 3), building('h2', 'home', 'coral', 3, 6), building('d1', 'destination', 'coral', 7, 4), building('h3', 'home', 'teal', 10, 11), building('h4', 'home', 'teal', 7, 14), building('d2', 'destination', 'teal', 3, 12)],
     roads: [], motorways: [], junctions: [], motorwayTiles: 0, signals: 0, roundabouts: 0, cars: [], water: [], score: 0, elapsed: 0, week: 1,
     roadTiles: 24, bridges: 1, status: 'playing', upgradeChoices: ['roads', 'bridge'],
-    message: '', nextCarId: 1, nextBuildingId: 7, nextExpansion: 35, nextHomeGrowth: 12, dispatchClock: 0,
+    message: '', nextCarId: 1, nextBuildingId: 7, nextExpansion: 35, nextHomeGrowth: HOME_GROWTH_INTERVAL, dispatchClock: 0,
   };
   for (let x = 0; x < state.cols; x++) state.water.push(...riverColumn(x));
   for (let x = 2; x < 6; x++) addRoad(state, { x, y: 3 }, { x: x + 1, y: 3 });
@@ -284,7 +286,7 @@ function growHome(state) {
     const bank = landRegion(state, destination);
     const shops = destinations.filter(item => item.color === destination.color && bank.has(key(item)));
     const nearbyHomes = homes.filter(item => item.color === destination.color && bank.has(key(item)));
-    if (nearbyHomes.length >= shops.length * 3) continue;
+    if (nearbyHomes.length >= shops.length * HOMES_PER_DESTINATION) continue;
     const assigned = new Map(shops.map(item => [item.id, 0]));
     for (const home of nearbyHomes) {
       const closest = shops.reduce((a, b) => distance(home, a) <= distance(home, b) ? a : b);
@@ -466,7 +468,7 @@ function tick(state, dt) {
   finishRoadRemovals(state);
   state.dispatchClock += dt;
   if (state.dispatchClock >= 0.35) { state.dispatchClock = 0; dispatch(state); }
-  if (state.elapsed + 1e-7 >= state.nextHomeGrowth) { state.nextHomeGrowth += 12; growHome(state); }
+  if (state.elapsed + 1e-7 >= state.nextHomeGrowth) { state.nextHomeGrowth += HOME_GROWTH_INTERVAL; growHome(state); }
   if (state.elapsed >= state.nextExpansion) { state.nextExpansion += 35; expand(state); }
   if (state.elapsed + 1e-7 >= state.week * 60) { state.status = 'upgrade'; state.message = '新的一週，選擇你的城市補給'; }
 }
@@ -504,7 +506,7 @@ export function restoreGame(json) {
     if (!Array.isArray(state.buildings) || !Array.isArray(state.roads) || !Array.isArray(state.cars) || !Array.isArray(state.water)) return null;
     if (state.buildings.length < 6 || state.buildings.length > 100 || state.roads.length > 1000 || state.cars.length > 200 || state.water.length > 957) return null;
     for (const field of ['seed', 'rng', 'score', 'elapsed', 'week', 'roadTiles', 'bridges', 'nextCarId', 'nextBuildingId', 'nextExpansion', 'dispatchClock']) if (!Number.isFinite(state[field]) || state[field] < 0) return null;
-    if (state.nextHomeGrowth === undefined) state.nextHomeGrowth = state.elapsed + 12;
+    if (state.nextHomeGrowth === undefined) state.nextHomeGrowth = state.elapsed + HOME_GROWTH_INTERVAL;
     if (!Number.isFinite(state.nextHomeGrowth) || state.nextHomeGrowth < 0) return null;
     if (!Number.isInteger(state.week) || state.week < 1 || !Number.isInteger(state.roadTiles) || !Number.isInteger(state.bridges)) return null;
     if (!state.buildings.every(item => inside(state, item) && typeof item.id === 'string' && ['home', 'destination'].includes(item.type) && COLORS.includes(item.color) && ['demand', 'stress', 'capacity', 'demandClock', 'cooldown'].every(field => Number.isFinite(item[field]) && item[field] >= 0) && item.capacity > 0 && item.stress <= 1)) return null;

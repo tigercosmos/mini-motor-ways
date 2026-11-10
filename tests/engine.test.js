@@ -239,7 +239,7 @@ test('undoing mixed land and river edits conserves all resources', () => {
 
 test('seeded expansion avoids water, roads and existing building cells', () => {
   const game = createGame(42); stepGame(game, 36);
-  assert.ok(game.buildings.length > 8);
+  assert.equal(game.buildings.length, 8);
   assert.equal(game.buildings.filter(item => item.type === 'destination').length, 3);
   const newest = game.buildings.at(-1);
   assert.ok(!game.water.some(cell => cell.x === newest.x && cell.y === newest.y));
@@ -520,25 +520,28 @@ test('an empty branch never slows a lone car on approach, crossing, or departure
   }
 });
 
-test('housing grows before the next shop opens and stops once both colors have three homes', () => {
+test('housing supplements new destinations without exceeding two homes per shop', () => {
   const game=createGame(7);
   const homes=()=>game.buildings.filter(item=>item.type==='home');
-  stepGame(game,11.9);assert.equal(homes().length,4);
-  stepGame(game,0.1);assert.equal(homes().length,5);
-  assert.equal(game.buildings.filter(item=>item.type==='destination').length,2);
-  const firstMessage=game.message;
-  stepGame(game,12);assert.equal(homes().length,6);assert.notEqual(game.message,firstMessage);
-  for(const color of ['coral','teal']) assert.equal(homes().filter(item=>item.color===color).length,3);
-  // With shop growth disabled, additional checks do not flood a supplied city.
+  stepGame(game,34);assert.equal(homes().length,4);
+  stepGame(game,2);assert.equal(homes().length,5);
+  assert.equal(game.buildings.filter(item=>item.type==='destination').length,3);
+  stepGame(game,3.9);assert.equal(homes().length,5);
+  stepGame(game,0.1);assert.equal(homes().length,6);
+  for(const color of ['coral','teal']) {
+    const shops=game.buildings.filter(item=>item.type==='destination'&&item.color===color);
+    assert.equal(homes().filter(item=>item.color===color).length,shops.length*2);
+  }
+  // Further checks keep a supplied city stable.
   game.nextExpansion=1000;
-  stepGame(game,24);assert.equal(homes().length,6);
+  stepGame(game,20);assert.equal(homes().length,6);
   assert.ok(restoreGame(serializeGame(game)));
 });
 
 test('housing prioritizes the color with fewer homes and stays on its destination bank', () => {
   const game=createGame(42);game.buildings.find(item=>item.id==='h2').color='teal';
   const before=new Set(game.buildings.map(item=>item.id));
-  stepGame(game,12);
+  stepGame(game,20);
   const home=game.buildings.find(item=>!before.has(item.id));
   assert.equal(home.type,'home');assert.equal(home.color,'coral');assert.ok(home.y<8);
   assert.ok(!game.roads.some(road=>[road.a,road.b].some(p=>p.x===home.x&&p.y===home.y)));
@@ -547,10 +550,10 @@ test('housing prioritizes the color with fewer homes and stays on its destinatio
 
 test('housing timer survives reload and old saves receive a future growth check', () => {
   const game=createGame(7);stepGame(game,10);
-  const restored=restoreGame(serializeGame(game));stepGame(game,2);stepGame(restored,2);
+  const restored=restoreGame(serializeGame(game));stepGame(game,10);stepGame(restored,10);
   assert.deepEqual(restored,game);
   delete game.nextHomeGrowth;
-  const migrated=restoreGame(serializeGame(game));assert.equal(migrated.nextHomeGrowth,migrated.elapsed+12);
+  const migrated=restoreGame(serializeGame(game));assert.equal(migrated.nextHomeGrowth,migrated.elapsed+20);
   migrated.nextHomeGrowth=-1;assert.equal(restoreGame(serializeGame(migrated)),null);
 });
 
@@ -562,4 +565,15 @@ test('an odd building count near the cap cannot overflow when a new pair opens',
   }
   assert.equal(game.buildings.length,99);game.nextHomeGrowth=1000;
   stepGame(game,36);assert.equal(game.buildings.length,99);
+});
+
+test('rebalancing preserves homes already supplied by the previous version', () => {
+  const game=createGame(7);
+  game.buildings.push({...game.buildings[0],id:'extra-coral',x:9,y:5},{...game.buildings.find(b=>b.id==='h3'),id:'extra-teal',x:3,y:15});
+  game.nextHomeGrowth=12;game.nextExpansion=1000;
+  const restored=restoreGame(serializeGame(game));assert.ok(restored);
+  const ids=restored.buildings.map(b=>b.id);
+  stepGame(restored,20);
+  assert.deepEqual(restored.buildings.map(b=>b.id),ids);
+  assert.equal(restored.nextHomeGrowth,32);
 });
