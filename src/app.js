@@ -204,7 +204,7 @@ function showHelp() {
     <li><strong>留意等待需求</strong><span>目的地的圓點代表等待中的旅客。危險圓環與百分比會隨壅塞累積，達到 100% 就會結束；紅色閃動時請優先疏通。接送旅客可降低危險。新目的地出現會響提示音，可從右上角關閉音效。</span></li>
     <li><strong>放大，畫得更精準</strong><span>雙指張開或捏合縮放，雙指拖曳平移。選「移動」可單指平移；回到「鋪路」繼續建設。點百分比回到全圖。</span></li>
     <li><strong>善用有限資源</strong><span>每段路花費一道路；跨河另需橋梁。拆除中的灰色路段，要等車輛返家才回收。</span></li>
-    <li><strong>第 4 週的交通設施</strong><span>每週只能選一包。高速公路連接兩個陸地出入口，以兩倍速度跨越地面道路；紅綠燈每 3 秒切換方向，只有交會車流才需等燈；圓環讓車沿環道通行，環內車優先。點設施按鈕後放置，拆除工具點設施或高速公路端點可回收。</span></li><li><strong>給城市留一點空間</strong><span>每週會出現新建築，並可選擇道路或橋梁補給。暫停時也能編輯道路。</span></li></ol>
+    <li><strong>第 4 週的交通設施</strong><span>每週只能選一包。高速公路連接兩個陸地出入口，以兩倍速度跨越地面道路；紅綠燈每 3 秒切換方向，只有交會車流才需等燈；圓環讓車沿環道通行，環內車優先。點設施按鈕後放置，拆除工具點設施或高速公路端點可回收。</span></li><li><strong>給城市留一點空間</strong><span>住宅每 12 秒依同色目的地的數量陸續增加，商場每 35 秒嘗試開幕；每週可選一包補給。暫停時也能編輯道路。</span></li></ol>
     <p class="modal-footnote">電腦快捷鍵：空白鍵暫停 · R 鋪路 · E 拆除 · H 移動 · G 格線 · 0 全圖 · Ctrl / ⌘ Z 復原<br>iPhone 可從 Safari「分享 → 加入主畫面」啟動。</p>
     <div class="modal-actions"><button class="primary-btn" id="close-help">明白了，繼續規劃 ↗</button></div></div>`);
   $('close-help').onclick = closeModal;

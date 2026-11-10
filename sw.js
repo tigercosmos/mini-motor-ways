@@ -1,6 +1,6 @@
 const SCOPE = new URL(self.registration.scope);
 const CACHE_PREFIX = `little-roads-${SCOPE.pathname}-`;
-const CACHE = `${CACHE_PREFIX}v14`;
+const CACHE = `${CACHE_PREFIX}v15`;
 const ASSETS = ['./', './index.html', './src/styles.css', './src/app.js', './src/engine.js', './src/board.js', './src/audio.js', './src/results.js', './icon.svg', './manifest.webmanifest'];
 self.addEventListener('install', event => { event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS))); self.skipWaiting(); });
 self.addEventListener('activate', event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())); });

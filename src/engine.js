@@ -30,7 +30,7 @@ export function createGame(seed = Date.now()) {
     buildings: [building('h1', 'home', 'coral', 2, 3), building('h2', 'home', 'coral', 3, 6), building('d1', 'destination', 'coral', 7, 4), building('h3', 'home', 'teal', 10, 11), building('h4', 'home', 'teal', 7, 14), building('d2', 'destination', 'teal', 3, 12)],
     roads: [], motorways: [], junctions: [], motorwayTiles: 0, signals: 0, roundabouts: 0, cars: [], water: [], score: 0, elapsed: 0, week: 1,
     roadTiles: 24, bridges: 1, status: 'playing', upgradeChoices: ['roads', 'bridge'],
-    message: '', nextCarId: 1, nextBuildingId: 7, nextExpansion: 35, dispatchClock: 0,
+    message: '', nextCarId: 1, nextBuildingId: 7, nextExpansion: 35, nextHomeGrowth: 12, dispatchClock: 0,
   };
   for (let x = 0; x < state.cols; x++) state.water.push(...riverColumn(x));
   for (let x = 2; x < 6; x++) addRoad(state, { x, y: 3 }, { x: x + 1, y: 3 });
@@ -273,6 +273,45 @@ function vacantCell(state, color, type, home = state.buildings.find(item => item
   return null;
 }
 
+// Add housing independently of shop openings, prioritizing under-served banks/colors.
+function growHome(state) {
+  if (state.buildings.length >= 100) return;
+  const homes = state.buildings.filter(item => item.type === 'home');
+  const destinations = state.buildings.filter(item => item.type === 'destination');
+  const groups = [];
+  for (const destination of destinations) {
+    if (groups.some(group => group.color === destination.color && group.bank.has(key(destination)))) continue;
+    const bank = landRegion(state, destination);
+    const shops = destinations.filter(item => item.color === destination.color && bank.has(key(item)));
+    const nearbyHomes = homes.filter(item => item.color === destination.color && bank.has(key(item)));
+    if (nearbyHomes.length >= shops.length * 3) continue;
+    const assigned = new Map(shops.map(item => [item.id, 0]));
+    for (const home of nearbyHomes) {
+      const closest = shops.reduce((a, b) => distance(home, a) <= distance(home, b) ? a : b);
+      assigned.set(closest.id, assigned.get(closest.id) + 1);
+    }
+    shops.sort((a, b) => assigned.get(a.id) - assigned.get(b.id) || b.stress - a.stress || b.demand - a.demand);
+    groups.push({ color: destination.color, bank, shops, ratio: nearbyHomes.length / shops.length });
+  }
+  groups.sort((a, b) => a.ratio - b.ratio || b.shops[0].stress - a.shops[0].stress);
+  const occupied = state.buildings.flatMap(footprint);
+  const roads = allRoads(state);
+  for (const group of groups) {
+    const candidates = [];
+    for (let y = 1; y < state.rows - 1; y++) for (let x = 1; x < state.cols - 1; x++) {
+      const point = { x, y };
+      if (!group.bank.has(key(point)) || occupied.some(item => distance(item, point) < 1.5) || roads.some(road => incident(road, point)) || junctionAt(state, point)) continue;
+      candidates.push({ point, rank: distance(point, group.shops[0]) + random(state) * 0.8 });
+    }
+    candidates.sort((a, b) => a.rank - b.rank);
+    if (!candidates.length) continue;
+    const point = candidates[0].point;
+    state.buildings.push(building(`b${state.nextBuildingId++}`, 'home', group.color, point.x, point.y));
+    state.message = `第 ${homes.length + 1} 戶住宅入住，連接同色目的地可增加兩台車`;
+    return;
+  }
+}
+
 function expand(state) {
   const wave = Math.floor(state.elapsed / 35);
   // Grow outward without moving existing roads, trips, or building coordinates.
@@ -280,7 +319,7 @@ function expand(state) {
   const rows = Math.min(33, 17 + 2 * Math.floor(wave / 2));
   for (let x = state.cols; x < cols; x++) state.water.push(...riverColumn(x));
   state.cols = Math.max(state.cols, cols); state.rows = Math.max(state.rows, rows);
-  if (state.buildings.length >= 100) return;
+  if (state.buildings.length > 98) return;
   const colors = [...new Set(state.buildings.map(item => item.color))];
   const unlocked = Math.min(COLORS.length, 2 + Math.floor(state.elapsed / 105));
   const color = colors.length < unlocked ? COLORS.find(item => !colors.includes(item)) : colors[(Math.max(1, wave) - 1) % colors.length];
@@ -427,6 +466,7 @@ function tick(state, dt) {
   finishRoadRemovals(state);
   state.dispatchClock += dt;
   if (state.dispatchClock >= 0.35) { state.dispatchClock = 0; dispatch(state); }
+  if (state.elapsed + 1e-7 >= state.nextHomeGrowth) { state.nextHomeGrowth += 12; growHome(state); }
   if (state.elapsed >= state.nextExpansion) { state.nextExpansion += 35; expand(state); }
   if (state.elapsed + 1e-7 >= state.week * 60) { state.status = 'upgrade'; state.message = '新的一週，選擇你的城市補給'; }
 }
@@ -464,6 +504,8 @@ export function restoreGame(json) {
     if (!Array.isArray(state.buildings) || !Array.isArray(state.roads) || !Array.isArray(state.cars) || !Array.isArray(state.water)) return null;
     if (state.buildings.length < 6 || state.buildings.length > 100 || state.roads.length > 1000 || state.cars.length > 200 || state.water.length > 957) return null;
     for (const field of ['seed', 'rng', 'score', 'elapsed', 'week', 'roadTiles', 'bridges', 'nextCarId', 'nextBuildingId', 'nextExpansion', 'dispatchClock']) if (!Number.isFinite(state[field]) || state[field] < 0) return null;
+    if (state.nextHomeGrowth === undefined) state.nextHomeGrowth = state.elapsed + 12;
+    if (!Number.isFinite(state.nextHomeGrowth) || state.nextHomeGrowth < 0) return null;
     if (!Number.isInteger(state.week) || state.week < 1 || !Number.isInteger(state.roadTiles) || !Number.isInteger(state.bridges)) return null;
     if (!state.buildings.every(item => inside(state, item) && typeof item.id === 'string' && ['home', 'destination'].includes(item.type) && COLORS.includes(item.color) && ['demand', 'stress', 'capacity', 'demandClock', 'cooldown'].every(field => Number.isFinite(item[field]) && item[field] >= 0) && item.capacity > 0 && item.stress <= 1)) return null;
     if (state.buildings.some(item => item.shopSide !== undefined && (typeof item.shopSide !== 'string' || !Object.hasOwn(SHOP_SIDES, item.shopSide)))) return null;

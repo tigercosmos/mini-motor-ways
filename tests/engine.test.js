@@ -239,7 +239,8 @@ test('undoing mixed land and river edits conserves all resources', () => {
 
 test('seeded expansion avoids water, roads and existing building cells', () => {
   const game = createGame(42); stepGame(game, 36);
-  assert.equal(game.buildings.length, 8);
+  assert.ok(game.buildings.length > 8);
+  assert.equal(game.buildings.filter(item => item.type === 'destination').length, 3);
   const newest = game.buildings.at(-1);
   assert.ok(!game.water.some(cell => cell.x === newest.x && cell.y === newest.y));
   assert.ok(!game.roads.some(road => [road.a, road.b].some(cell => cell.x === newest.x && cell.y === newest.y)));
@@ -463,8 +464,13 @@ test('growth uses continuous terrain and puts every new shop on its new homes ba
       const before = game.buildings.length;
       stepGame(game, 1);
       if (game.buildings.length > before) {
-        const [home, destination] = game.buildings.slice(before);
-        assert.equal(reachable(home, destination), true, `seed ${seed} at ${seconds}`);
+        const added = game.buildings.slice(before);
+        for (const destination of added.filter(item => item.type === 'destination')) {
+          const home = [...added].reverse().find(item => item.type === 'home' && item.color === destination.color);
+          assert.ok(home);
+          assert.equal(reachable(home, destination), true, `seed ${seed} at ${seconds}`);
+        }
+        for (const home of added.filter(item => item.type === 'home')) assert.ok(game.buildings.some(item => item.type === 'destination' && item.color === home.color && reachable(home, item)));
       }
     }
     for (let x = 13; x < game.cols; x++) assert.ok(game.water.some(p => p.x === x && p.y === 8));
@@ -512,4 +518,48 @@ test('an empty branch never slows a lone car on approach, crossing, or departure
     assert.equal(game.cars[0].x, plain.cars[0].x);
     assert.equal(game.cars[0].progress, plain.cars[0].progress);
   }
+});
+
+test('housing grows before the next shop opens and stops once both colors have three homes', () => {
+  const game=createGame(7);
+  const homes=()=>game.buildings.filter(item=>item.type==='home');
+  stepGame(game,11.9);assert.equal(homes().length,4);
+  stepGame(game,0.1);assert.equal(homes().length,5);
+  assert.equal(game.buildings.filter(item=>item.type==='destination').length,2);
+  const firstMessage=game.message;
+  stepGame(game,12);assert.equal(homes().length,6);assert.notEqual(game.message,firstMessage);
+  for(const color of ['coral','teal']) assert.equal(homes().filter(item=>item.color===color).length,3);
+  // With shop growth disabled, additional checks do not flood a supplied city.
+  game.nextExpansion=1000;
+  stepGame(game,24);assert.equal(homes().length,6);
+  assert.ok(restoreGame(serializeGame(game)));
+});
+
+test('housing prioritizes the color with fewer homes and stays on its destination bank', () => {
+  const game=createGame(42);game.buildings.find(item=>item.id==='h2').color='teal';
+  const before=new Set(game.buildings.map(item=>item.id));
+  stepGame(game,12);
+  const home=game.buildings.find(item=>!before.has(item.id));
+  assert.equal(home.type,'home');assert.equal(home.color,'coral');assert.ok(home.y<8);
+  assert.ok(!game.roads.some(road=>[road.a,road.b].some(p=>p.x===home.x&&p.y===home.y)));
+  assert.ok(game.buildings.filter(item=>item!==home).every(item=>Math.hypot(item.x-home.x,item.y-home.y)>=1.5));
+});
+
+test('housing timer survives reload and old saves receive a future growth check', () => {
+  const game=createGame(7);stepGame(game,10);
+  const restored=restoreGame(serializeGame(game));stepGame(game,2);stepGame(restored,2);
+  assert.deepEqual(restored,game);
+  delete game.nextHomeGrowth;
+  const migrated=restoreGame(serializeGame(game));assert.equal(migrated.nextHomeGrowth,migrated.elapsed+12);
+  migrated.nextHomeGrowth=-1;assert.equal(restoreGame(serializeGame(migrated)),null);
+});
+
+test('an odd building count near the cap cannot overflow when a new pair opens', () => {
+  const game=createGame(7);game.cols=29;game.rows=33;
+  for(let y=1;y<33&&game.buildings.length<99;y+=2) for(let x=1;x<29&&game.buildings.length<99;x+=2) {
+    if(game.buildings.some(b=>Math.hypot(b.x-x,b.y-y)<2)||game.water.some(p=>p.x===x&&p.y===y))continue;
+    game.buildings.push({id:`cap-${game.buildings.length}`,type:'home',color:'coral',x,y,demand:0,stress:0,capacity:6,demandClock:0,cooldown:100});
+  }
+  assert.equal(game.buildings.length,99);game.nextHomeGrowth=1000;
+  stepGame(game,36);assert.equal(game.buildings.length,99);
 });
