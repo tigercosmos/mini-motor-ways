@@ -9,6 +9,11 @@ const COLORS = {
 };
 const sameCell = (a, b) => a && b && a.x === b.x && a.y === b.y;
 const key = (p) => `${p.x},${p.y}`;
+const lineCells = (from, to) => {
+  const count = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y));
+  if (!count) return [{ ...from }];
+  return Array.from({ length: count + 1 }, (_, i) => ({ x: Math.round(from.x + (to.x - from.x) * i / count), y: Math.round(from.y + (to.y - from.y) * i / count) }));
+};
 
 function roundedRect(ctx, x, y, width, height, radius) {
   ctx.beginPath();
@@ -23,6 +28,8 @@ export class Board {
     this.callbacks = callbacks;
     this.state = null;
     this.tool = 'road';
+    this.straight = true;
+    this.lineStart = null;
     this.grid = true;
     this.pointer = null;
     this.hover = null;
@@ -42,7 +49,7 @@ export class Board {
     this.canvas.style.touchAction = 'none';
     this.canvas.style.userSelect = 'none';
     this.canvas.style.webkitUserSelect = 'none';
-    this.canvas.setAttribute('aria-label', '城市地圖。單指拖曳鋪路，連接同色住宅與目的地。雙指縮放或移動地圖，也可選擇移動工具以單指拖曳。跨河會使用橋梁。');
+    this.canvas.setAttribute('aria-label', '城市地圖。拖曳預覽道路，放手鋪路；也可點起點再點終點，連接同色住宅與停車場。雙指縮放或移動地圖，也可選擇移動工具以單指拖曳。跨河會使用橋梁。');
     this.canvas.setAttribute('role', 'img');
     this.handlers = {
       pointerdown: (event) => this.onPointerDown(event),
@@ -78,6 +85,8 @@ export class Board {
     this.tool = next;
     this.canvas.style.cursor = next === 'pan' ? 'grab' : next === 'erase' ? 'cell' : 'crosshair';
   }
+
+  setStraight(enabled) { this.cancelGesture(); this.straight = Boolean(enabled); }
 
   setGrid(visible) { this.grid = Boolean(visible); }
   getView() { return { zoom: this.zoom }; }
@@ -167,6 +176,7 @@ export class Board {
   /** Retain contacts normally; page lifecycle cancellation can discard stale contacts. */
   cancelGesture({ releasePointers = false } = {}) {
     this.finishEdit();
+    this.lineStart = null;
     this.gesture = null;
     if (releasePointers) {
       const ids = [...this.pointers.keys()];
@@ -219,6 +229,7 @@ export class Board {
     try { this.canvas.setPointerCapture?.(event.pointerId); } catch { /* The contact may already have ended. */ }
     if (this.gestureCanceled) return;
     if (this.pointers.size >= 2) {
+      this.lineStart = null;
       this.finishEdit();
       this.blockEdit = true;
       this.startPinch();
@@ -235,7 +246,7 @@ export class Board {
     this.pointer = event.pointerId;
     this.lastCell = cell;
     this.hover = cell;
-    this.origin = cell;
+    this.origin = this.tool === 'road' && this.straight ? this.lineStart || cell : cell;
     const start = this.localPoint(event), center = this.cellToPoint(cell);
     this.strokeOffset = { x: start.x - center.x, y: start.y - center.y };
     this.moved = false;
@@ -251,6 +262,11 @@ export class Board {
     if (this.pointer !== null && event.pointerId !== this.pointer) return;
     this.hover = this.tool === 'pan' ? null : cell;
     if (event.pointerId !== this.pointer) return;
+    if (this.tool === 'road' && this.straight) {
+      this.lastCell = cell;
+      this.moved ||= Boolean(cell && !sameCell(this.origin, cell));
+      return;
+    }
     if (!cell) { this.lastCell = null; this.strokeOffset = null; return; }
     if (!this.lastCell) {
       this.lastCell = cell;
@@ -302,6 +318,18 @@ export class Board {
     // Touch browsers can deliver a final release position without a matching move.
     if (event.type === 'pointerup') this.onPointerMove(event);
     if (event.pointerId === this.pointer && !this.blockEdit) {
+      if (this.tool === 'road' && this.straight) {
+        if (event.type === 'pointerup' && this.lastCell && !sameCell(this.origin, this.lastCell)) {
+          const path = lineCells(this.origin, this.lastCell);
+          for (let i = 1; i < path.length; i++) {
+            const result = this.callbacks.onRoad?.(path[i - 1], path[i]);
+            if (result?.ok === false) { this.callbacks.onMessage?.(result.reason); break; }
+          }
+          this.lineStart = null;
+        } else if (event.type === 'pointerup' && this.lastCell && !this.moved) {
+          this.lineStart = this.lineStart ? null : this.lastCell;
+        } else this.lineStart = null;
+      }
       if (this.tool === 'erase' && !this.moved && this.lastCell && event.type === 'pointerup') {
         const roads = this.state?.roads || [];
         const road = roads.find(entry => !entry.pendingRemoval && (sameCell(entry.a, this.lastCell) || sameCell(entry.b, this.lastCell)));
@@ -312,6 +340,7 @@ export class Board {
     this.pointers.delete(event.pointerId);
     if (this.canvas.hasPointerCapture?.(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
     if (event.type !== 'pointerup') {
+      this.lineStart = null;
       this.finishEdit();
       this.gestureCanceled = this.pointers.size > 0;
       this.blockEdit = this.pointers.size > 0;
@@ -652,6 +681,17 @@ export class Board {
   }
 
   drawPointer(ctx, time) {
+    const start = this.origin || this.lineStart;
+    if (this.tool === 'road' && this.straight && start) {
+      ctx.save();
+      ctx.strokeStyle = '#477d72'; ctx.lineWidth = 0.18; ctx.setLineDash([0.16, 0.1]);
+      const path = lineCells(start, this.hover || start);
+      ctx.beginPath(); ctx.moveTo(start.x + 0.5, start.y + 0.5);
+      for (const point of path.slice(1)) ctx.lineTo(point.x + 0.5, point.y + 0.5);
+      ctx.stroke(); ctx.setLineDash([]);
+      ctx.lineWidth = 0.06; ctx.beginPath(); ctx.arc(start.x + 0.5, start.y + 0.5, 0.3, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
     if (!this.hover) return;
     ctx.save();
     const color = this.tool === 'erase' ? '#c46c59' : '#4d7d71';

@@ -1,5 +1,6 @@
 import { createGame, stepGame, addRoad, removeRoad, applyUpgrade, serializeGame, restoreGame } from './engine.js';
 import { Board } from './board.js';
+import { AudioFeedback, DestinationAnnouncements } from './audio.js';
 
 const $ = id => document.getElementById(id);
 const SAVE_KEY = 'little-roads-save-v1';
@@ -20,8 +21,10 @@ let started = false;
 let speed = 1;
 let tool = 'road';
 let grid = true;
-let sound = false;
-let audio;
+let sound = storage.get('little-roads-sound') !== 'off';
+const sounds = new AudioFeedback({ enabled: sound });
+const announcements = new DestinationAnnouncements(() => { sounds.destinationOpened(); toast('新目的地開幕，替同色住宅接上 P 停車場吧'); });
+announcements.reset(state.buildings);
 let modalKind = '';
 let previousFocus;
 let history = [];
@@ -44,28 +47,13 @@ function toast(message) {
   toastTimer = setTimeout(() => { $('toast').classList.remove('visible'); $('toast').hidden = true; }, 2800);
 }
 
-function playTone(frequency = 440) {
-  if (!sound) return;
-  try {
-    audio ||= new (window.AudioContext || window.webkitAudioContext)();
-    if (audio.state === 'suspended') audio.resume();
-    const oscillator = audio.createOscillator();
-    const gain = audio.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(frequency, audio.currentTime);
-    gain.gain.setValueAtTime(0.035, audio.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.13);
-    oscillator.connect(gain).connect(audio.destination);
-    oscillator.start(); oscillator.stop(audio.currentTime + 0.15);
-  } catch { sound = false; }
-}
+function playTone(frequency = 440) { sounds.tone(frequency); }
 
 function roadAction(a, b, erase = false) {
   if (!started || modalKind || state.status === 'gameover') return;
   const result = erase ? removeRoad(state, a, b) : addRoad(state, a, b);
   if (result.ok && result.changed) {
     stroke.push({ a: { ...a }, b: { ...b }, erase });
-    playTone(erase ? 220 : 360 + (stroke.length % 5) * 40);
     if (result.pending) toast('灰色道路等待車輛返家後，才會回收資源。');
     updateUI();
   } else if (!result.ok && result.reason && (!erase || result.reason !== '這裡沒有道路')) toast(result.reason);
@@ -76,7 +64,7 @@ const board = new Board($('game-canvas'), {
   onRoad: (a, b) => roadAction(a, b),
   onErase: (a, b) => roadAction(a, b, true),
   onGestureEnd: () => {
-    if (stroke.length) { history.push(stroke); history = history.slice(-30); stroke = []; save(); updateUI(); }
+    if (stroke.length) { playTone(stroke[0].erase ? 220 : 440); history.push(stroke); history = history.slice(-30); stroke = []; save(); updateUI(); }
   },
   onMessage: toast,
   onViewChange: updateViewControls,
@@ -121,6 +109,8 @@ function updateUI() {
   $('road-btn').setAttribute('aria-pressed', String(tool === 'road'));
   $('erase-btn').setAttribute('aria-pressed', String(tool === 'erase'));
   $('pan-btn').setAttribute('aria-pressed', String(tool === 'pan'));
+  $('line-mode-btn').setAttribute('aria-pressed', String(board.straight));
+  $('line-mode-label').textContent = board.straight ? '連線模式' : '自由畫';
   updateViewControls(board.getView());
   $('grid-btn').setAttribute('aria-pressed', String(grid));
   $('sound-btn').setAttribute('aria-pressed', String(sound));
@@ -155,6 +145,8 @@ function closeModal() {
 
 function begin(fresh = false) {
   if (fresh) { state = createGame(Date.now() >>> 0); board.setState(state); board.resetView(); selectTool('road'); history = []; stroke = []; lastMessage = state.message || ''; }
+  announcements.reset(state.buildings);
+  sounds.unlock();
   started = true;
   paused = false;
   closeModal();
@@ -182,7 +174,7 @@ function welcome() {
     <div class="welcome-art" aria-hidden="true"><span class="mini-home">⌂</span><span class="mini-road"></span><span class="mini-destination">●</span></div>
     <h2 id="dialog-title">小小道路，<br>連起一座城。</h2>
     <p>畫下道路，連接同色的住宅與目的地。<br>看車子出發，讓每一次日常順利抵達。</p>
-    <div class="welcome-tips"><span>↗ 單指鋪路</span><span>⤢ 雙指縮放</span><span>Ⅱ 隨時暫停</span></div>
+    <div class="welcome-tips"><span>↗ 拖曳預覽後放手鋪路</span><span>⤢ 雙指縮放</span><span>Ⅱ 隨時暫停</span></div>
     <div class="modal-actions"><button class="primary-btn" id="begin-btn">${saved?.status === 'gameover' ? '查看上次結果' : saved ? '繼續我的小城' : '開始我的小城'} <span aria-hidden="true">↗</span></button>${saved ? '<button class="secondary-btn" id="new-btn">重新開始</button>' : ''}</div>
     <p class="modal-footnote">為指尖設計 · 建議直向遊玩 · 自動儲存進度</p>
   </div>`);
@@ -192,8 +184,8 @@ function welcome() {
 
 function showHelp() {
   showModal('help', `<div class="modal-card"><span class="modal-eyebrow">HOW TO PLAY</span><h2 id="dialog-title">讓日常，流動起來。</h2>
-    <ol class="help-steps"><li><strong>連接同色建築</strong><span>每戶有兩台車，可往各方向畫直線或斜線。拖曳連接同色目的地旁的 P 停車場；有需求才會出發，每趟服務後返家。</span></li>
-    <li><strong>留意等待需求</strong><span>目的地的圓點代表等待中的旅客。外圈越滿越危險，擁塞太久就會結束。</span></li>
+    <ol class="help-steps"><li><strong>連接同色建築</strong><span>每戶有兩台車。拖曳預覽道路，放手才鋪設；也可點起點再點終點，直線與斜線都會自動連接。拖曳連接同色目的地旁的 P 停車場；有需求才會出發，每趟服務後返家。</span></li>
+    <li><strong>留意等待需求</strong><span>目的地的圓點代表等待中的旅客。外圈越滿越危險，擁塞太久就會結束。新目的地出現會響提示音，可從右上角關閉音效。</span></li>
     <li><strong>放大，畫得更精準</strong><span>雙指張開或捏合縮放，雙指拖曳平移。選「移動」可單指平移；回到「鋪路」繼續建設。點百分比回到全圖。</span></li>
     <li><strong>善用有限資源</strong><span>每段路花費一道路；跨河另需橋梁。拆除中的灰色路段，要等車輛返家才回收。</span></li>
     <li><strong>給城市留一點空間</strong><span>每週會出現新建築，並可選擇道路或橋梁補給。暫停時也能編輯道路。</span></li></ol>
@@ -233,6 +225,7 @@ function undo() {
   updateUI(); save();
   toast(remaining.length ? '部分路段暫時無法復原，請確認資源與出入口。' : state.roads.some(road => road.pendingRemoval) ? '已復原上一筆道路編輯；灰色路段仍需等待車輛返家。' : '已復原上一筆道路編輯。');
 }
+$('line-mode-btn').onclick = () => { board.setStraight(!board.straight); selectTool('road'); updateUI(); toast(board.straight ? '拖曳預覽，放手鋪路；也可點起點再點終點。' : '自由畫：沿拖曳軌跡鋪路。'); };
 $('road-btn').onclick = () => selectTool('road');
 $('erase-btn').onclick = () => selectTool('erase');
 $('pan-btn').onclick = () => selectTool(tool === 'pan' ? 'road' : 'pan');
@@ -244,7 +237,7 @@ $('speed-btn').onclick = () => { speed = speed === 1 ? 2 : 1; updateUI(); toast(
 $('grid-btn').onclick = () => { grid = !grid; board.setGrid(grid); updateUI(); };
 $('undo-btn').onclick = undo;
 $('help-btn').onclick = showHelp;
-$('sound-btn').onclick = () => { sound = !sound; playTone(520); updateUI(); toast(sound ? '音效已開啟' : '音效已關閉'); };
+$('sound-btn').onclick = () => { sound = !sound; storage.set('little-roads-sound', sound ? 'on' : 'off'); sounds.setEnabled(sound); playTone(520); updateUI(); toast(sound ? '音效已開啟' : '音效已關閉'); };
 $('restart-btn').onclick = () => {
   showModal('restart', '<div class="modal-card"><span class="modal-eyebrow">A FRESH START</span><h2 id="dialog-title">再建一座小城？</h2><p>目前的道路與進度將重新開始，最佳紀錄會保留。</p><div class="modal-actions"><button class="primary-btn" id="confirm-restart">重新開始</button><button class="secondary-btn" id="cancel-restart">回到我的小城</button></div></div>');
   $('confirm-restart').onclick = () => { save(); begin(true); };
@@ -269,6 +262,7 @@ document.addEventListener('keydown', event => {
     if (event.key.toLowerCase() === 'e') selectTool('erase');
     if (event.key.toLowerCase() === 'h') selectTool('pan');
     if (event.key === '0') board.resetView();
+    if (event.key === 'Escape') board.cancelGesture();
     if (event.key.toLowerCase() === 'g') $('grid-btn').click();
   }
 });
@@ -284,6 +278,7 @@ function frame(time) {
   lastTime = time;
   if (started && !paused && !modalKind && !document.hidden) {
     stepGame(state, dt * speed);
+    announcements.update(state.buildings);
     if (state.message && state.message !== lastMessage) { lastMessage = state.message; toast(state.message); }
     if (state.status === 'upgrade') showUpgrade();
     if (state.status === 'gameover') showGameOver();

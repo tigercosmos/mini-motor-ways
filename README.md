@@ -20,13 +20,16 @@ The server listens on all network interfaces. Allow local network access if your
 
 ## Play
 
-1. Drag from a small home to a destination of the same color.
-2. Connect adjacent grid points. Horizontal, vertical, and diagonal segments each cost one road tile. Diagonal crossings do not connect unless they share a grid point.
-3. Cross water with bridges. Each continuous water span costs one bridge, plus road tiles. Bridges can bend but cannot branch. A diagonal that only touches one water corner stays on land; a dry-to-dry diagonal between two water corners crosses a river seam and uses its own bridge. Crossing bridges do not share a span unless their water endpoints connect.
-4. Use the eraser to remove roads. Busy roads turn gray until their cars return home; resources remain reserved until clearance.
-5. Pause to plan. Switch to 2× speed to advance time faster.
-6. Keep destination demand under control. A full stress ring ends the game.
-7. Every 60 game seconds, choose 12 roads or 8 roads and one bridge.
+1. Drag from a small home to the P parking cell of a matching destination. The default line mode previews the route and builds it when you release. You can also tap the start and end cells. Tap the selected start again or press Escape to cancel.
+2. Use the line-mode button below the map to switch to freehand drawing when you want a winding route.
+3. Connect adjacent grid points. Horizontal, vertical, and diagonal segments each cost one road tile. Diagonal crossings do not connect unless they share a grid point.
+4. Cross water with bridges. Each continuous water span costs one bridge, plus road tiles. Bridges can bend but cannot branch. A diagonal that only touches one water corner stays on land; a dry-to-dry diagonal between two water corners crosses a river seam and uses its own bridge. Crossing bridges do not share a span unless their water endpoints connect.
+5. Use the eraser to remove roads. Busy roads turn gray until their cars return home; resources remain reserved until clearance.
+6. Pause to plan. Switch to 2× speed to advance time faster.
+7. Keep destination demand under control. A full stress ring ends the game.
+8. Every 60 game seconds, choose 12 roads or 8 roads and one bridge.
+
+New destinations play a short three-note chime. Sound starts enabled and is unlocked when you start playing. The sound button mutes effects and saves that preference in this browser. Existing destinations do not replay their chime when you resume a save.
 
 Each home has two cars and can connect in all eight directions. New games have 18 road tiles and one bridge available after the starter route. Destinations request an available matching car, and that car reserves one demand pin until arrival.
 

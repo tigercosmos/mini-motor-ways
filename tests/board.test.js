@@ -20,7 +20,7 @@ function recordingContext() {
   });
 }
 
-function fixture(t, { width = 390, height = 560, dpr = 3 } = {}) {
+function fixture(t, { width = 390, height = 560, dpr = 3, straight = false } = {}) {
   const originalWindow = globalThis.window;
   const originalObserver = globalThis.ResizeObserver;
   globalThis.window = { devicePixelRatio: dpr };
@@ -51,6 +51,7 @@ function fixture(t, { width = 390, height = 560, dpr = 3 } = {}) {
     onGestureEnd() { gestures++; },
     onViewChange(view) { viewChanges.push(view); },
   });
+  board.setStraight(straight);
   board.setState(state);
   function dispatch(type, cell, pointerId = 1) {
     const point = board.cellToPoint(cell);
@@ -572,4 +573,54 @@ test('diagonal road gestures enter and leave water cells using a single bridge',
   assert.equal(state.roads.length, 2);
   assert.equal(state.bridges, 0);
   assert.deepEqual(state.roads.map(road => [road.a, road.b]), [[{ x: 5, y: 7 }, { x: 6, y: 8 }], [{ x: 6, y: 8 }, { x: 7, y: 9 }]]);
+});
+
+test('line mode previews a jittery diagonal without spending resources until release', t => {
+  const { board, dispatch, dispatchAt, roads, state, gestures } = fixture(t, { straight: true });
+  const start = { x: 1, y: 1 }, end = { x: 5, y: 5 };
+  const origin = board.cellToPoint(start), budget = state.roadTiles;
+  dispatchAt('pointerdown', origin.x + 0.4 * board.cell, origin.y - 0.4 * board.cell);
+  for (let i = 1; i <= 40; i++) dispatchAt('pointermove', origin.x + (i / 10 + 0.2 * Math.sin(i)) * board.cell, origin.y + (i / 10 - 0.2 * Math.sin(i)) * board.cell);
+  assert.equal(roads.length, 0);
+  assert.equal(state.roadTiles, budget);
+  dispatch('pointerup', end);
+  assert.equal(roads.length, 4);
+  assert.equal(state.roadTiles, budget - 4);
+  assert.equal(gestures(), 1);
+  for (const [a, b] of roads) assert.equal(b.x - a.x, b.y - a.y);
+});
+
+test('two taps connect the chosen endpoints and a repeated origin tap cancels selection', t => {
+  const { board, dispatch, roads } = fixture(t, { straight: true });
+  dispatch('pointerdown', { x: 1, y: 1 }); dispatch('pointerup', { x: 1, y: 1 });
+  assert.deepEqual(board.lineStart, { x: 1, y: 1 }); assert.equal(roads.length, 0);
+  dispatch('pointerdown', { x: 4, y: 4 }); dispatch('pointerup', { x: 4, y: 4 });
+  assert.equal(roads.length, 3); assert.equal(board.lineStart, null);
+  dispatch('pointerdown', { x: 1, y: 1 }); dispatch('pointerup', { x: 1, y: 1 });
+  dispatch('pointerdown', { x: 1, y: 1 }); dispatch('pointerup', { x: 1, y: 1 });
+  assert.equal(board.lineStart, null); assert.equal(roads.length, 3);
+});
+
+test('canceling or changing a line gesture never commits its preview', t => {
+  const { board, dispatch, roads } = fixture(t, { straight: true });
+  dispatch('pointerdown', { x: 1, y: 1 }); dispatch('pointermove', { x: 4, y: 4 });
+  dispatch('pointercancel', { x: 4, y: 4 }); assert.equal(roads.length, 0);
+  dispatch('pointerdown', { x: 1, y: 1 }); dispatch('pointermove', { x: 4, y: 4 });
+  dispatch('pointerdown', { x: 8, y: 10 }, 2);
+  dispatch('pointerup', { x: 4, y: 4 }); dispatch('pointerup', { x: 8, y: 10 }, 2);
+  assert.equal(roads.length, 0);
+  dispatch('pointerdown', { x: 1, y: 1 }); dispatch('pointerup', { x: 1, y: 1 });
+  board.setTool('erase'); assert.equal(board.lineStart, null);
+});
+
+test('straight preview and committed grid route match and stop before a shop', t => {
+  const { board, ctx, dispatch, roads, state } = fixture(t, { straight: true });
+  dispatch('pointerdown', { x: 7, y: 1 }); dispatch('pointermove', { x: 7, y: 5 });
+  board.drawPointer(ctx, 0);
+  const preview = ctx.operations.find(op => op.method === 'stroke' && op.lineWidth === 0.18);
+  assert.deepEqual(preview.path.map(point => point.args), [[7.5, 1.5], [7.5, 2.5], [7.5, 3.5], [7.5, 4.5], [7.5, 5.5]]);
+  const count = state.roads.length;
+  dispatch('pointerup', { x: 7, y: 5 });
+  assert.equal(state.roads.length, count + 1);
+  assert.equal(roads.length, 2); // One accepted segment, then the shop rejection.
 });

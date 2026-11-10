@@ -73,12 +73,13 @@
         </div>
         <div class="map-container">
           <div class="map-top-label" aria-hidden="true"><span class="map-coordinate">35° N · 139° E</span><span class="map-north">N <span>↑</span></span></div>
-          <canvas id="game-canvas" tabindex="0" role="application" aria-label="城市地圖。單指拖曳鋪路，連接同色住宅與目的地；雙指縮放或移動地圖，也可選取移動地圖工具後單指拖曳。下方按鈕可放大、縮小及重設視野。空白鍵暫停遊戲，R 鋪路，E 拆除。"></canvas>
+          <canvas id="game-canvas" tabindex="0" role="application" aria-label="城市地圖。拖曳預覽道路，放手鋪路；或點起點再點終點，連接同色住宅與停車場；雙指縮放或移動地圖，也可選取移動地圖工具後單指拖曳。下方按鈕可放大、縮小及重設視野。空白鍵暫停遊戲，R 鋪路，E 拆除。"></canvas>
           <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
           <div class="map-bottom-label" aria-hidden="true"><span>RIVERSIDE</span><span>一座正在長大的小城</span></div>
         </div>
         <div class="controls-area">
           <div class="camera-controls" role="group" aria-label="地圖視野控制">
+            <button id="line-mode-btn" class="camera-button line-mode-button" type="button" aria-label="切換連線與自由畫模式" aria-pressed="true" title="連線模式：拖曳預覽，放手鋪路；或點起點再點終點"><span aria-hidden="true">↗</span><span id="line-mode-label" class="camera-caption">連線模式</span></button>
             <button id="zoom-in-btn" class="camera-button" type="button" aria-label="放大地圖" title="放大地圖"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
             <button id="reset-view-btn" class="camera-button reset-view-button" type="button" aria-label="重設地圖視野" title="重設地圖視野"><span id="zoom-value">100%</span><span class="camera-caption">全覽</span></button>
             <button id="zoom-out-btn" class="camera-button" type="button" aria-label="縮小地圖" title="縮小地圖"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
@@ -106,7 +107,7 @@
               <button id="speed-btn" class="tool-button speed-button" type="button" aria-label="切換遊戲速度" title="切換速度"><strong class="speed-value" data-speed>1×</strong><span>速度</span></button>
             </div>
           </div>
-          <p class="interaction-hint"><span class="hint-dot"></span> 單指鋪路 · 雙指縮放移動 · 選「移動」後可單指拖曳地圖</p>
+          <p class="interaction-hint"><span class="hint-dot"></span> 拖曳預覽後放手鋪路 · 或點起點再點終點 · 雙指縮放移動</p>
         </div>
       </section>
     </main>

@@ -25,3 +25,6 @@
 .controls-area .camera-controls{position:static;flex-direction:row;width:fit-content;margin:0 auto 5px;padding:0 4px;box-shadow:none;border:0;background:transparent;gap:8px}.controls-area .camera-divider{width:1px;height:22px;margin:0 2px}.map-container .toast{right:14px;max-width:calc(100% - 28px)}
 
 @media(max-height:500px) and (orientation:landscape){.controls-area .camera-controls{width:104px;flex-wrap:wrap;gap:2px;margin-bottom:4px}.controls-area .camera-divider{display:none}.controls-area .resources{margin-bottom:4px}}
+
+.line-mode-button .camera-caption{white-space:nowrap;font-size:8px}.line-mode-button>span:first-child{font-size:21px}
+@media(max-height:500px) and (orientation:landscape){.game-panel{grid-template-columns:minmax(0,1fr) 185px}.controls-area .camera-controls{width:154px}.controls-area .toolbar{width:154px}.controls-area .tool-button{width:44px;min-width:44px}.controls-area .interaction-hint{max-width:154px}}
