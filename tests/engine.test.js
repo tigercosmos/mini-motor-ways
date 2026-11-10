@@ -158,7 +158,7 @@ test('version one saves migrate capacity and refund excess per-water-cell bridge
   game.version = 1; game.bridges = 0;
   game.buildings.forEach(item => { item.capacity = 7; }); game.roads.forEach(road => { delete road.pendingRemoval; });
   const migrated = restoreGame(serializeGame(game));
-  assert.ok(migrated); assert.equal(migrated.version, 3); assert.equal(migrated.bridges, 1);
+  assert.ok(migrated); assert.equal(migrated.version, 4); assert.equal(migrated.bridges, 1);
   assert.ok(migrated.buildings.every(item => item.capacity === 6));
 });
 
@@ -245,7 +245,7 @@ test('seeded expansion avoids water, roads and existing building cells', () => {
   assert.ok(!game.roads.some(road => [road.a, road.b].some(cell => cell.x === newest.x && cell.y === newest.y)));
 });
 
-test('all eight home directions accept roads and diagonal river corners consume a bridge', () => {
+test('all eight home directions accept roads without charging shoreline diagonals', () => {
   const game = createGame(9); game.roads = [];
   const home = game.buildings[0];
   for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
@@ -253,7 +253,7 @@ test('all eight home directions accept roads and diagonal river corners consume 
   }
   const a = { x: 4, y: 9 }, b = { x: 5, y: 10 };
   assert.equal(addRoad(game, a, b).ok, true);
-  assert.equal(game.bridges, 0);
+  assert.equal(game.bridges, 1);
   assert.equal(removeRoad(game, a, b).ok, true);
   assert.equal(game.bridges, 1);
   assert.ok(restoreGame(serializeGame(game)));
@@ -326,7 +326,7 @@ test('old saves relocate shops away from existing roads without changing trips o
     { a: { x: 7, y: 3 }, b: { x: 7, y: 4 }, bridge: false, pendingRemoval: false });
   const restored = restoreGame(serializeGame(game));
   assert.ok(restored);
-  assert.equal(restored.version, 3);
+  assert.equal(restored.version, 4);
   assert.equal(restored.buildings.find(item => item.id === 'd1').shopSide, 'south');
   assert.deepEqual(restored.roads, game.roads);
   assert.equal(restored.roadTiles, game.roadTiles);
@@ -366,4 +366,134 @@ test('current saves reject roads hidden under shop footprints', () => {
   const game = createGame(7);
   game.roads.push({ a: { x: 7, y: 3 }, b: { x: 7, y: 4 }, bridge: false, pendingRemoval: false });
   assert.equal(restoreGame(serializeGame(game)), null);
+});
+
+test('a shoreline diagonal stays on land and needs no bridge', () => {
+  const game = createGame(7); game.bridges = 0;
+  const a = { x: 4, y: 9 }, b = { x: 5, y: 10 };
+  assert.equal(addRoad(game, a, b).ok, true);
+  assert.equal(game.roads.at(-1).bridge, false);
+  assert.equal(game.bridges, 0);
+  assert.equal(removeRoad(game, a, b).ok, true);
+  assert.equal(game.bridges, 0);
+});
+
+test('a seam crossing and an opposite diagonal are separate bridges without a junction', () => {
+  const game = createGame(7); game.roads = []; game.water = [{ x: 1, y: 2 }, { x: 2, y: 1 }];
+  assert.equal(addRoad(game, { x: 1, y: 1 }, { x: 2, y: 2 }).ok, true);
+  assert.equal(game.bridges, 0);
+  assert.equal(addRoad(game, { x: 1, y: 2 }, { x: 2, y: 1 }).ok, false);
+  game.bridges = 1;
+  assert.equal(addRoad(game, { x: 1, y: 2 }, { x: 2, y: 1 }).ok, true);
+  assert.equal(game.bridges, 0);
+  removeRoad(game, { x: 1, y: 1 }, { x: 2, y: 2 });
+  assert.equal(game.bridges, 1);
+  assert.equal(game.roads.length, 1);
+});
+
+test('legacy shoreline bridge charges are refunded exactly once on restore', () => {
+  const game = createGame(7); game.version = 3;
+  game.roads.push({ a: { x: 4, y: 9 }, b: { x: 5, y: 10 }, bridge: true, pendingRemoval: false });
+  game.roadTiles--; game.bridges--;
+  const restored = restoreGame(serializeGame(game));
+  assert.ok(restored);
+  assert.equal(restored.version, 4);
+  assert.equal(restored.bridges, 1);
+  assert.equal(restored.roads.at(-1).bridge, false);
+  assert.equal(restored.roadTiles, game.roadTiles);
+  assert.deepEqual(restoreGame(serializeGame(restored)), restored);
+  const road = restored.roads.at(-1);
+  removeRoad(restored, road.a, road.b);
+  assert.equal(restored.bridges, 1);
+});
+
+test('legacy split bridge spans remain funded without negative inventory', () => {
+  const game = createGame(7); game.version = 3; game.roads = []; game.bridges = 1;
+  game.water = [{ x: 1, y: 1 }, { x: 2, y: 1 }];
+  game.roads.push(
+    { a: { x: 1, y: 1 }, b: { x: 2, y: 2 }, bridge: true },
+    { a: { x: 2, y: 1 }, b: { x: 3, y: 1 }, bridge: true });
+  const restored = restoreGame(serializeGame(game));
+  assert.ok(restored);
+  assert.equal(restored.bridges, 1);
+  assert.deepEqual(restoreGame(serializeGame(restored)), restored);
+});
+
+test('v1 migration preserves multiple valid home driveways', () => {
+  const game = createGame(7);
+  addRoad(game, { x: 2, y: 3 }, { x: 2, y: 4 });
+  game.version = 1;
+  const restored = restoreGame(serializeGame(game));
+  assert.ok(restored);
+  assert.deepEqual(restored.roads, game.roads);
+  assert.equal(restored.roadTiles, game.roadTiles);
+});
+
+test('invalid shared parking metadata cannot introduce synthetic route edges', () => {
+  for (const parkingId of ['', 0, {}, 'orphan']) {
+    const game = createGame(7);
+    game.buildings.find(item => item.id === 'd1').parkingId = parkingId;
+    assert.equal(restoreGame(serializeGame(game)), null);
+  }
+  const game = createGame(7);
+  const first = game.buildings.find(item => item.id === 'd1');
+  const second = game.buildings.find(item => item.id === 'd2');
+  Object.assign(second, { x: first.x + 1, y: first.y, color: first.color });
+  first.parkingId = second.parkingId = 'lot';
+  assert.equal(restoreGame(serializeGame(game)), null);
+});
+
+test('growth uses continuous terrain and puts every new shop on its new homes bank', () => {
+  for (const seed of [2, 3, 6, 42]) {
+    const game = createGame(seed);
+    const reachable = (from, to) => {
+      const water = new Set(game.water.map(p => `${p.x},${p.y}`)), seen = new Set(), queue = [from];
+      while (queue.length) {
+        const p = queue.pop(), id = `${p.x},${p.y}`;
+        if (p.x < 0 || p.x >= game.cols || p.y < 0 || p.y >= game.rows || water.has(id) || seen.has(id)) continue;
+        if (p.x === to.x && p.y === to.y) return true;
+        seen.add(id);
+        queue.push({ x: p.x + 1, y: p.y }, { x: p.x - 1, y: p.y }, { x: p.x, y: p.y + 1 }, { x: p.x, y: p.y - 1 });
+      }
+      return false;
+    };
+    for (let seconds = 0; seconds < 560; seconds++) {
+      for (const item of game.buildings) { item.demand = 0; item.stress = 0; }
+      if (game.status === 'upgrade') applyUpgrade(game, 'roads');
+      const before = game.buildings.length;
+      stepGame(game, 1);
+      if (game.buildings.length > before) {
+        const [home, destination] = game.buildings.slice(before);
+        assert.equal(reachable(home, destination), true, `seed ${seed} at ${seconds}`);
+      }
+    }
+    for (let x = 13; x < game.cols; x++) assert.ok(game.water.some(p => p.x === x && p.y === 8));
+    assert.equal(reachable({ x: 0, y: 0 }, { x: 0, y: 16 }), false);
+    assert.ok(restoreGame(serializeGame(game)));
+  }
+});
+
+test('land junctions next to a river bend do not count as branches on neighboring water cells', () => {
+  const game = createGame(7); game.bridges = 2;
+  for (const [a, b] of [[{ x: 7, y: 8 }, { x: 7, y: 9 }], [{ x: 7, y: 9 }, { x: 7, y: 10 }], [{ x: 7, y: 8 }, { x: 8, y: 9 }], [{ x: 8, y: 9 }, { x: 8, y: 10 }]]) assert.equal(addRoad(game, a, b).ok, true);
+  assert.equal(game.bridges, 0);
+  assert.ok(restoreGame(serializeGame(game)));
+});
+
+test('retired legacy bridge branches cannot be restored into an invalid save', () => {
+  const game = createGame(7); game.roads = []; game.version = 3; game.bridges = 1;
+  const home = game.buildings.find(item => item.id === 'h1');
+  const destination = game.buildings.find(item => item.id === 'd1');
+  Object.assign(home, { x: 1, y: 7 }); Object.assign(destination, { x: 2, y: 8, shopSide: 'north' });
+  const a = { x: 1, y: 8 }, b = { x: 2, y: 8 };
+  game.roads = [
+    { a: { x: 1, y: 7 }, b: a, bridge: true, pendingRemoval: false },
+    { a, b: { x: 1, y: 9 }, bridge: true, pendingRemoval: false },
+    { a, b, bridge: true, pendingRemoval: false },
+  ];
+  game.cars.push({ id: 'c1', color: home.color, homeId: home.id, destinationId: destination.id, route: [{ x: 1, y: 7 }, a, b], segment: 0, progress: 0.5, x: 1, y: 7.5, angle: Math.PI / 2, returning: false, stopTime: 0 });
+  const restored = restoreGame(serializeGame(game)); assert.ok(restored);
+  assert.equal(restored.roads.at(-1).pendingRemoval, true);
+  assert.equal(addRoad(restored, a, b).ok, false);
+  assert.ok(restoreGame(serializeGame(restored)));
 });

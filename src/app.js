@@ -10,7 +10,7 @@ const storage = {
 };
 const previousSave = storage.get(SAVE_KEY);
 try {
-  if (previousSave && JSON.parse(previousSave)?.version < 3) storage.set(`${SAVE_KEY}-before-parking-v3`, previousSave);
+  if (previousSave && JSON.parse(previousSave)?.version < 4 && !storage.get(`${SAVE_KEY}-before-v4`)) storage.set(`${SAVE_KEY}-before-v4`, previousSave);
 } catch { /* Invalid saves are handled by restoreGame. */ }
 let saved = restoreGame(previousSave);
 let state = saved || createGame(Date.now() >>> 0);
@@ -164,6 +164,19 @@ function begin(fresh = false) {
 }
 
 function welcome() {
+  if (previousSave && !saved) {
+    showModal('recovery', `<div class="modal-card"><h2 id="dialog-title">暫時無法還原這座小城</h2>
+      <p>原始存檔仍保留，尚未覆寫。請先下載備份，再決定是否重新開始。</p>
+      <div class="modal-actions"><button class="primary-btn" id="backup-save-btn">下載原始存檔</button>
+      <button class="secondary-btn" id="recovery-new-btn">重新開始一座小城</button></div></div>`);
+    $('backup-save-btn').onclick = () => {
+      const url = URL.createObjectURL(new Blob([previousSave], { type: 'application/json' }));
+      const link = document.createElement('a'); link.href = url; link.download = 'little-roads-save-backup.json';
+      link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+    $('recovery-new-btn').onclick = () => { storage.set(`${SAVE_KEY}-unrestorable`, previousSave); begin(true); };
+    return;
+  }
   showModal('welcome', `<div class="modal-card welcome-card">
     <span class="modal-eyebrow">A LITTLE CITY. YOUR OWN RHYTHM.</span>
     <div class="welcome-art" aria-hidden="true"><span class="mini-home">⌂</span><span class="mini-road"></span><span class="mini-destination">●</span></div>

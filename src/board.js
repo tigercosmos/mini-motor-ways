@@ -113,7 +113,8 @@ export class Board {
   layout() {
     if (!this.state) return;
     const gutter = this.width < 500 ? 8 : 26;
-    this.baseCell = Math.max(1, Math.min((this.width - gutter * 2) / this.state.cols, (this.height - gutter * 2) / this.state.rows));
+    const [cols, rows] = this.dimensions.split(',').map(Number);
+    this.baseCell = Math.max(1, Math.min((this.width - gutter * 2) / cols, (this.height - gutter * 2) / rows));
     this.cell = this.baseCell * this.zoom;
     const center = this.viewCenter || { x: this.state.cols / 2, y: this.state.rows / 2 };
     this.offsetX = this.width / 2 - center.x * this.cell;
@@ -127,8 +128,9 @@ export class Board {
     const clampAxis = (offset, viewport, extent, endGutter = gutter) => extent <= viewport - gutter - endGutter
       ? (viewport - extent) / 2
       : Math.min(gutter, Math.max(viewport - endGutter - extent, offset));
-    this.offsetX = clampAxis(this.offsetX, this.width, this.state.cols * this.cell, gutter);
-    this.offsetY = clampAxis(this.offsetY, this.height, this.state.rows * this.cell);
+    const [cols, rows] = this.dimensions.split(',').map(Number);
+    this.offsetX = clampAxis(this.offsetX, this.width, cols * this.cell, gutter);
+    this.offsetY = clampAxis(this.offsetY, this.height, rows * this.cell);
     this.viewCenter = { x: (this.width / 2 - this.offsetX) / this.cell, y: (this.height / 2 - this.offsetY) / this.cell };
   }
 
@@ -309,9 +311,9 @@ export class Board {
   }
 
   render(time = 0) {
-    if (this.state && this.dimensions !== `${this.state.cols},${this.state.rows}`) {
+    if (this.state && this.dimensions !== `${this.state.cols},${this.state.rows}` && this.pointers.size === 0) {
+      // Apply growth after all fingers lift, preserving the active gesture's coordinates.
       this.dimensions = `${this.state.cols},${this.state.rows}`;
-      this.cancelGesture();
       if (this.zoom === 1) this.viewCenter = { x: this.state.cols / 2, y: this.state.rows / 2 };
       this.layout();
     }

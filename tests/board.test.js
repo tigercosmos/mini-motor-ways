@@ -477,3 +477,52 @@ test('migrated shops render on their reserved side of parking', t => {
   };
   board.drawBuildings(ctx, 0);
 });
+
+test('map growth waits for the active road stroke to finish before changing its coordinates', t => {
+  const { board, state, dispatch, roads, gestures } = fixture(t);
+  dispatch('pointerdown', { x: 1, y: 1 });
+  dispatch('pointermove', { x: 2, y: 1 });
+  const before = { cell: board.cell, x: board.offsetX, y: board.offsetY };
+  state.cols += 2; state.rows += 2;
+  board.render(0);
+  assert.equal(board.pointer, 1);
+  assert.equal(gestures(), 0);
+  assert.deepEqual({ cell: board.cell, x: board.offsetX, y: board.offsetY }, before);
+  dispatch('pointerup', { x: 3, y: 1 });
+  assert.equal(roads.length, 2);
+  assert.equal(gestures(), 1);
+  board.render(1);
+  assert.ok(board.cell < before.cell);
+});
+
+test('growth also defers camera layout until both pinch fingers have lifted', t => {
+  const { board, state, dispatch } = fixture(t);
+  dispatch('pointerdown', { x: 2, y: 3 }, 1);
+  dispatch('pointerdown', { x: 8, y: 12 }, 2);
+  const dimensions = board.dimensions;
+  state.cols += 2; state.rows += 2;
+  board.render(0);
+  assert.equal(board.dimensions, dimensions);
+  assert.equal(board.gesture.type, 'pinch');
+  dispatch('pointerup', { x: 2, y: 3 }, 1);
+  board.render(1);
+  assert.equal(board.dimensions, dimensions);
+  dispatch('pointerup', { x: 8, y: 12 }, 2);
+  board.render(2);
+  assert.equal(board.dimensions, `${state.cols},${state.rows}`);
+});
+
+
+test('lost pointer capture during deferred growth releases the view without dropping completed roads', t => {
+  const { board, state, dispatch, gestures, roads } = fixture(t);
+  dispatch('pointerdown', { x: 1, y: 1 });
+  dispatch('pointermove', { x: 2, y: 1 });
+  state.cols += 2; state.rows += 2;
+  board.render(0);
+  dispatch('lostpointercapture', { x: 8, y: 8 });
+  board.render(1);
+  assert.equal(board.pointers.size, 0);
+  assert.equal(gestures(), 1);
+  assert.equal(roads.length, 1);
+  assert.equal(board.dimensions, `${state.cols},${state.rows}`);
+});
