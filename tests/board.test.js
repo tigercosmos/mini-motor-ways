@@ -624,3 +624,25 @@ test('straight preview and committed grid route match and stop before a shop', t
   assert.equal(state.roads.length, count + 1);
   assert.equal(roads.length, 2); // One accepted segment, then the shop rejection.
 });
+
+test('destination danger shows a full track, actual stress percentage, and a persistent arc', t => {
+  const { board, ctx } = fixture(t);
+  const colors = { main: '#123', roof: '#234' };
+  for (const stress of [0.01, 0.5, 0.85, 1]) {
+    ctx.operations.length = 0;
+    board.drawDestination(ctx, { demand: 8, capacity: 6, stress }, colors, 0);
+    assert.ok(ctx.operations.some(op => op.method === 'fillText' && op.args[0] === `${Math.floor(stress * 100)}%`));
+    const arcs = ctx.operations.filter(op => op.method === 'arc' && op.args[2] === 0.61);
+    assert.equal(arcs.length, 2);
+    assert.equal(arcs[0].args[4], Math.PI * 2);
+    assert.ok(Math.abs(arcs[1].args[4] - arcs[1].args[3] - Math.PI * 2 * stress) < 1e-12);
+    assert.ok(ctx.operations.some(op => op.method === 'stroke' && op.lineWidth === 0.14 && op.strokeStyle === (stress >= 0.6 ? '#c53632' : '#c28a22')));
+  }
+  ctx.operations.length = 0;
+  board.drawDestination(ctx, { demand: 5, capacity: 6, stress: 0 }, colors, 0);
+  assert.ok(ctx.operations.some(op => op.method === 'arc' && op.args[2] === 0.61));
+  assert.ok(!ctx.operations.some(op => op.method === 'fillText'));
+  ctx.operations.length = 0;
+  board.drawDestination(ctx, { demand: 1, capacity: 6, stress: 0 }, colors, 0);
+  assert.ok(!ctx.operations.some(op => op.method === 'arc' && op.args[2] === 0.61));
+});

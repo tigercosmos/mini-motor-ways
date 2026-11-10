@@ -626,6 +626,8 @@ export class Board {
     const dots = Math.min(6, demand);
     const overflow = Math.max(0, demand - dots);
     if (dots) {
+      ctx.save();
+      if (building.stress > 0 || demand >= (building.capacity ?? 6) - 1) ctx.translate(0, -0.3);
       const width = dots * 0.115 + 0.14 + (overflow ? 0.43 : 0);
       ctx.fillStyle = '#fff9eb';
       roundedRect(ctx, -width / 2, -0.745, width, 0.28, 0.14);
@@ -642,16 +644,37 @@ export class Board {
         ctx.textBaseline = 'middle';
         ctx.fillText(`+${overflow}`, width / 2 - 0.23, -0.605);
       }
+      ctx.restore();
     }
     const stress = Math.max(0, Math.min(1, building.stress || 0));
-    if (stress > 0.05) {
-      ctx.strokeStyle = stress > 0.6 ? '#c45e4e' : '#d5a44e';
-      ctx.globalAlpha = stress > 0.75 ? 0.65 + 0.35 * Math.sin(time / 200) : 0.85;
-      ctx.lineWidth = 0.055;
+    // A fixed full-circle track makes the remaining margin visible even at low stress.
+    if (stress > 0 || demand >= (building.capacity ?? 6) - 1) {
+      const danger = stress >= 0.8;
+      const color = stress >= 0.6 ? '#c53632' : '#c28a22';
+      ctx.save();
+      ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.arc(0, -0.02, 0.58, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * stress);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
+      ctx.arc(0, -0.02, 0.61, 0, Math.PI * 2);
+      ctx.strokeStyle = '#fff9eb'; ctx.lineWidth = 0.24; ctx.stroke();
+      ctx.strokeStyle = '#ddcdb5'; ctx.lineWidth = 0.14; ctx.stroke();
+      if (stress > 0) {
+        ctx.beginPath();
+        ctx.arc(0, -0.02, 0.61, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * stress);
+        ctx.strokeStyle = color; ctx.lineWidth = 0.14; ctx.stroke();
+        // Pulse only the outer halo; the progress arc and percentage never fade out.
+        if (danger) {
+          ctx.beginPath(); ctx.arc(0, -0.02, 0.76, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(197,54,50,.35)';
+          ctx.lineWidth = 0.04 + 0.04 * (1 + Math.sin(time / 180)); ctx.stroke();
+        }
+        ctx.fillStyle = '#fff9eb';
+        roundedRect(ctx, -0.39, -0.21, 0.78, 0.36, 0.1); ctx.fill();
+        ctx.fillStyle = color;
+        ctx.font = '800 0.27px ui-sans-serif, system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(`${Math.floor(stress * 100)}%`, 0, -0.02);
+      }
+      ctx.restore();
     }
   }
 

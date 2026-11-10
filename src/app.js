@@ -185,7 +185,7 @@ function welcome() {
 function showHelp() {
   showModal('help', `<div class="modal-card"><span class="modal-eyebrow">HOW TO PLAY</span><h2 id="dialog-title">讓日常，流動起來。</h2>
     <ol class="help-steps"><li><strong>連接同色建築</strong><span>每戶有兩台車。拖曳預覽道路，放手才鋪設；也可點起點再點終點，直線與斜線都會自動連接。拖曳連接同色目的地旁的 P 停車場；有需求才會出發，每趟服務後返家。</span></li>
-    <li><strong>留意等待需求</strong><span>目的地的圓點代表等待中的旅客。外圈越滿越危險，擁塞太久就會結束。新目的地出現會響提示音，可從右上角關閉音效。</span></li>
+    <li><strong>留意等待需求</strong><span>目的地的圓點代表等待中的旅客。危險圓環與百分比會隨壅塞累積，達到 100% 就會結束；紅色閃動時請優先疏通。接送旅客可降低危險。新目的地出現會響提示音，可從右上角關閉音效。</span></li>
     <li><strong>放大，畫得更精準</strong><span>雙指張開或捏合縮放，雙指拖曳平移。選「移動」可單指平移；回到「鋪路」繼續建設。點百分比回到全圖。</span></li>
     <li><strong>善用有限資源</strong><span>每段路花費一道路；跨河另需橋梁。拆除中的灰色路段，要等車輛返家才回收。</span></li>
     <li><strong>給城市留一點空間</strong><span>每週會出現新建築，並可選擇道路或橋梁補給。暫停時也能編輯道路。</span></li></ol>
