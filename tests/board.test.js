@@ -526,3 +526,50 @@ test('lost pointer capture during deferred growth releases the view without drop
   assert.equal(roads.length, 1);
   assert.equal(board.dimensions, `${state.cols},${state.rows}`);
 });
+
+test('diagonal drags do not depend on where inside the starting cell the finger lands', t => {
+  const { board, dispatchAt, roads, state } = fixture(t);
+  state.roads = []; state.water = []; state.roadTiles = 500;
+  for (const zoom of [1, 2]) {
+    board.resetView(); board.zoomBy(zoom);
+    for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      for (const [ox, oy] of [[0.4, -0.4], [-0.4, 0.4], [0.35, 0.1], [-0.1, -0.35]]) {
+        roads.length = 0;
+        const start = { x: 6, y: 8 }, point = board.cellToPoint(start);
+        const x = point.x + ox * board.cell, y = point.y + oy * board.cell;
+        dispatchAt('pointerdown', x, y);
+        for (let i = 1; i <= 40; i++) dispatchAt('pointermove', x + dx * i / 20 * board.cell, y + dy * i / 20 * board.cell);
+        dispatchAt('pointerup', x + dx * 2 * board.cell, y + dy * 2 * board.cell);
+        assert.deepEqual(roads, [[start, { x: start.x + dx, y: start.y + dy }], [{ x: start.x + dx, y: start.y + dy }, { x: start.x + dx * 2, y: start.y + dy * 2 }]], `offset ${ox},${oy}; direction ${dx},${dy}; zoom ${zoom}`);
+      }
+    }
+  }
+});
+
+test('off-center diagonal strokes reach the target center without attempting a blocked shop corner', t => {
+  const { board, dispatchAt, roads, state } = fixture(t);
+  state.roads = []; state.water = []; state.roadTiles = 100;
+  const shop = state.buildings.find(item => item.id === 'd1');
+  Object.assign(shop, { x: 7, y: 5 });
+  const start = { x: 6, y: 4 }, end = { x: 7, y: 5 };
+  const a = board.cellToPoint(start), b = board.cellToPoint(end);
+  const x = a.x + 0.45 * board.cell, y = a.y - 0.45 * board.cell;
+  dispatchAt('pointerdown', x, y);
+  for (let i = 1; i <= 40; i++) dispatchAt('pointermove', x + (b.x - x) * i / 40, y + (b.y - y) * i / 40);
+  dispatchAt('pointerup', b.x, b.y);
+  assert.deepEqual(roads, [[start, end]]);
+  assert.equal(state.roads.length, 1);
+});
+
+test('diagonal road gestures enter and leave water cells using a single bridge', t => {
+  const { board, dispatchAt, state } = fixture(t);
+  state.roads = []; state.water = [{ x: 6, y: 8 }]; state.bridges = 1;
+  const a = board.cellToPoint({ x: 5, y: 7 });
+  const x = a.x + 0.4 * board.cell, y = a.y - 0.4 * board.cell;
+  dispatchAt('pointerdown', x, y);
+  for (let i = 1; i <= 40; i++) dispatchAt('pointermove', x + i / 20 * board.cell, y + i / 20 * board.cell);
+  dispatchAt('pointerup', x + 2 * board.cell, y + 2 * board.cell);
+  assert.equal(state.roads.length, 2);
+  assert.equal(state.bridges, 0);
+  assert.deepEqual(state.roads.map(road => [road.a, road.b]), [[{ x: 5, y: 7 }, { x: 6, y: 8 }], [{ x: 6, y: 8 }, { x: 7, y: 9 }]]);
+});

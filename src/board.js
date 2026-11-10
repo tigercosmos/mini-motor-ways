@@ -158,6 +158,7 @@ export class Board {
     this.pointer = null;
     this.lastCell = null;
     this.origin = null;
+    this.strokeOffset = null;
     this.lastReason = null;
     this.hover = null;
     if (editing) this.callbacks.onGestureEnd?.();
@@ -235,6 +236,8 @@ export class Board {
     this.lastCell = cell;
     this.hover = cell;
     this.origin = cell;
+    const start = this.localPoint(event), center = this.cellToPoint(cell);
+    this.strokeOffset = { x: start.x - center.x, y: start.y - center.y };
     this.moved = false;
   }
 
@@ -248,8 +251,13 @@ export class Board {
     if (this.pointer !== null && event.pointerId !== this.pointer) return;
     this.hover = this.tool === 'pan' ? null : cell;
     if (event.pointerId !== this.pointer) return;
-    if (!cell) { this.lastCell = null; return; }
-    if (!this.lastCell) { this.lastCell = cell; return; }
+    if (!cell) { this.lastCell = null; this.strokeOffset = null; return; }
+    if (!this.lastCell) {
+      this.lastCell = cell;
+      const point = this.localPoint(event), center = this.cellToPoint(cell);
+      this.strokeOffset = { x: point.x - center.x, y: point.y - center.y };
+      return;
+    }
     if (sameCell(this.lastCell, cell)) return;
     if (event.type !== 'pointerup') {
       const point = this.localPoint(event);
@@ -258,6 +266,13 @@ export class Board {
       // Slow diagonal drags otherwise commit two orthogonal edges at each corner.
       const travel = Math.max(Math.abs(point.x - center.x), Math.abs(point.y - center.y)) / this.cell;
       if (travel < 0.75) return;
+      if (this.tool === 'road' && (cell.x === this.lastCell.x || cell.y === this.lastCell.y)) {
+        const dx = Math.abs(point.x - center.x - (this.strokeOffset?.x || 0));
+        const dy = Math.abs(point.y - center.y - (this.strokeOffset?.y || 0));
+        // An off-center touch crosses one grid boundary before the other even
+        // on a straight diagonal. Wait for both axes instead of laying a stair.
+        if (Math.min(dx, dy) > Math.max(dx, dy) / 3) return;
+      }
     }
     const previous = this.lastCell;
     const count = Math.max(Math.abs(cell.x - previous.x), Math.abs(cell.y - previous.y));
