@@ -247,6 +247,14 @@ export class Board {
     if (!cell) { this.lastCell = null; return; }
     if (!this.lastCell) { this.lastCell = cell; return; }
     if (sameCell(this.lastCell, cell)) return;
+    if (event.type !== 'pointerup') {
+      const point = this.localPoint(event);
+      const center = this.cellToPoint(this.lastCell);
+      // Wait beyond the half-cell boundary before choosing the next direction.
+      // Slow diagonal drags otherwise commit two orthogonal edges at each corner.
+      const travel = Math.max(Math.abs(point.x - center.x), Math.abs(point.y - center.y)) / this.cell;
+      if (travel < 0.75) return;
+    }
     const previous = this.lastCell;
     const count = Math.max(Math.abs(cell.x - previous.x), Math.abs(cell.y - previous.y));
     let a = previous;

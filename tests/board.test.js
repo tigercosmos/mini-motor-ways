@@ -421,3 +421,39 @@ test('in-place map growth updates drawing scale and keeps new cells reachable', 
   const point = board.cellToPoint(cell);
   assert.deepEqual(board.pointToCell(bounds.left + point.x, bounds.top + point.y), cell);
 });
+
+test('slow diagonal strokes across slightly offset grid corners stay diagonal in all directions', t => {
+  const { board, dispatch, dispatchAt, roads, state } = fixture(t);
+  state.roads = []; state.water = []; state.roadTiles = 100;
+  for (const zoom of [1, 2]) {
+    board.resetView(); board.zoomBy(zoom);
+    for (const [dx, dy] of [[1, -1], [-1, -1], [1, 1], [-1, 1]]) {
+      roads.length = 0;
+      const start = { x: 6, y: 8 }, end = { x: 6 + dx * 2, y: 8 + dy * 2 };
+      const origin = board.cellToPoint(start);
+      dispatch('pointerdown', start);
+      // Real pointer events cross one cell boundary a little before the other.
+      for (let i = 1; i <= 40; i++) {
+        const progress = i / 20;
+        dispatchAt('pointermove', origin.x + dx * progress * board.cell, origin.y + dy * (progress - 0.04) * board.cell);
+      }
+      dispatch('pointerup', end);
+      assert.equal(roads.length, 2, `direction ${dx},${dy}, zoom ${zoom}`);
+      assert.deepEqual(roads[0], [start, { x: start.x + dx, y: start.y + dy }]);
+      assert.deepEqual(roads[1][1], end);
+    }
+  }
+});
+
+test('direction buffer preserves deliberate right-angle turns and commits a short final segment on release', t => {
+  const { board, dispatch, dispatchAt, roads } = fixture(t);
+  const start = { x: 2, y: 3 };
+  dispatch('pointerdown', start);
+  dispatch('pointermove', { x: 3, y: 3 });
+  dispatch('pointermove', { x: 3, y: 2 });
+  const point = board.cellToPoint({ x: 3, y: 2 });
+  dispatchAt('pointermove', point.x + 0.6 * board.cell, point.y);
+  assert.equal(roads.length, 2);
+  dispatchAt('pointerup', point.x + 0.6 * board.cell, point.y);
+  assert.deepEqual(roads, [[start, { x: 3, y: 3 }], [{ x: 3, y: 3 }, { x: 3, y: 2 }], [{ x: 3, y: 2 }, { x: 4, y: 2 }]]);
+});
