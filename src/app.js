@@ -1,4 +1,4 @@
-import { createGame, stepGame, addRoad, removeRoad, applyUpgrade, serializeGame, restoreGame } from './engine.js';
+import { createGame, stepGame, addRoad, removeRoad, applyUpgrade, availableUpgrades, UPGRADE_PACKS, addMotorway, placeJunction, removeInfrastructure, serializeGame, restoreGame } from './engine.js';
 import { RESULTS_KEY, readResults, recordResult } from './results.js';
 import { Board } from './board.js';
 import { AudioFeedback, DestinationAnnouncements } from './audio.js';
@@ -12,7 +12,7 @@ const storage = {
 };
 const previousSave = storage.get(SAVE_KEY);
 try {
-  if (previousSave && JSON.parse(previousSave)?.version < 4 && !storage.get(`${SAVE_KEY}-before-v4`)) storage.set(`${SAVE_KEY}-before-v4`, previousSave);
+  if (previousSave && JSON.parse(previousSave)?.version < 5 && !storage.get(`${SAVE_KEY}-before-v5`)) storage.set(`${SAVE_KEY}-before-v5`, previousSave);
 } catch { /* Invalid saves are handled by restoreGame. */ }
 let saved = restoreGame(previousSave);
 let state = saved || createGame(Date.now() >>> 0);
@@ -66,6 +66,13 @@ function roadAction(a, b, erase = false) {
 const board = new Board($('game-canvas'), {
   onRoad: (a, b) => roadAction(a, b),
   onErase: (a, b) => roadAction(a, b, true),
+  onInfrastructure: (kind, a, b) => {
+    if (!started || modalKind || state.status === 'gameover') return null;
+    const result = kind === 'motorway' ? addMotorway(state, a, b) : kind === 'erase' ? removeInfrastructure(state, a) : placeJunction(state, a, kind);
+    if (result?.changed) { history = []; save(); updateUI(); playTone(540); toast(result.pending ? '高速公路等待車輛返家後回收。' : kind === 'erase' ? '已回收設施。' : '設施已放置；選拆除後點設施可回收。'); }
+    else if (result?.reason) toast(result.reason);
+    return result;
+  },
   onGestureEnd: () => {
     if (stroke.length) { playTone(stroke[0].erase ? 220 : 440); history.push(stroke); history = history.slice(-30); stroke = []; save(); updateUI(); }
   },
@@ -92,6 +99,11 @@ function updateUI() {
   $('week-value').textContent = String(state.week);
   const day = Math.min(6, Math.floor((state.elapsed % 60) / (60 / 7)));
   $('day-value').textContent = ['一', '二', '三', '四', '五', '六', '日'][day];
+  $('infrastructure-tools').hidden = state.week < 4;
+  for (const [kind, resource] of [['motorway', 'motorwayTiles'], ['signal', 'signals'], ['roundabout', 'roundabouts']]) {
+    $(`${kind}-count`).textContent = String(state[resource]);
+    $(`${kind}-btn`).setAttribute('aria-pressed', String(tool === kind));
+  }
   $('roads-value').textContent = String(state.roadTiles);
   $('bridges-value').textContent = String(state.bridges);
   $('best-value').textContent = Math.max(best, state.score).toLocaleString();
@@ -192,7 +204,7 @@ function showHelp() {
     <li><strong>留意等待需求</strong><span>目的地的圓點代表等待中的旅客。危險圓環與百分比會隨壅塞累積，達到 100% 就會結束；紅色閃動時請優先疏通。接送旅客可降低危險。新目的地出現會響提示音，可從右上角關閉音效。</span></li>
     <li><strong>放大，畫得更精準</strong><span>雙指張開或捏合縮放，雙指拖曳平移。選「移動」可單指平移；回到「鋪路」繼續建設。點百分比回到全圖。</span></li>
     <li><strong>善用有限資源</strong><span>每段路花費一道路；跨河另需橋梁。拆除中的灰色路段，要等車輛返家才回收。</span></li>
-    <li><strong>給城市留一點空間</strong><span>每週會出現新建築，並可選擇道路或橋梁補給。暫停時也能編輯道路。</span></li></ol>
+    <li><strong>第 4 週的交通設施</strong><span>每週只能選一包。高速公路連接兩個陸地出入口，以兩倍速度跨越地面道路；紅綠燈每 3 秒切換方向，只有交會車流才需等燈；圓環讓車沿環道通行，環內車優先。點設施按鈕後放置，拆除工具點設施或高速公路端點可回收。</span></li><li><strong>給城市留一點空間</strong><span>每週會出現新建築，並可選擇道路或橋梁補給。暫停時也能編輯道路。</span></li></ol>
     <p class="modal-footnote">電腦快捷鍵：空白鍵暫停 · R 鋪路 · E 拆除 · H 移動 · G 格線 · 0 全圖 · Ctrl / ⌘ Z 復原<br>iPhone 可從 Safari「分享 → 加入主畫面」啟動。</p>
     <div class="modal-actions"><button class="primary-btn" id="close-help">明白了，繼續規劃 ↗</button></div></div>`);
   $('close-help').onclick = closeModal;
@@ -200,11 +212,14 @@ function showHelp() {
 
 function showUpgrade() {
   history = [];
-  showModal('upgrade', `<div class="modal-card"><span class="modal-eyebrow">A NEW WEEK, NEW POSSIBILITIES</span><h2 id="dialog-title">迎接第 ${state.week + 1} 週，<br>小城長大了一點。</h2><p>做得好！選擇本週補給，為新的日常留出空間。</p>
-  <div class="upgrade-options"><button class="upgrade-card" data-upgrade="roads"><span class="upgrade-symbol">╋</span><strong>更多道路</strong><span>＋12 道路</span></button><button class="upgrade-card" data-upgrade="bridge"><span class="upgrade-symbol">≋</span><strong>橋梁補給</strong><span>＋8 道路 · ＋1 橋梁</span></button></div></div>`);
+  const options = availableUpgrades(state).map(kind => {
+    const pack = UPGRADE_PACKS[kind];
+    return `<button class="upgrade-card" data-upgrade="${kind}"><strong>${pack.title}</strong><span>${pack.detail}</span></button>`;
+  }).join('');
+  showModal('upgrade', `<div class="modal-card"><span class="modal-eyebrow">A NEW WEEK, NEW POSSIBILITIES</span><h2 id="dialog-title">迎接第 ${state.week + 1} 週</h2><p>每週只能選一包補給。${state.week + 1 < 4 ? '第 4 週起可選高速公路、紅綠燈與圓環。' : '選擇一種設施組合，改善城市交通。'}</p><div class="upgrade-options">${options}</div></div>`);
   $('modal').querySelectorAll('[data-upgrade]').forEach(button => button.onclick = () => {
     const result = applyUpgrade(state, button.dataset.upgrade);
-    if (result.ok) { closeModal(); save(); playTone(660); toast('補給抵達，繼續你的城市故事。'); }
+    if (result.ok) { closeModal(); save(); playTone(660); toast(state.message); }
   });
 }
 
@@ -249,6 +264,10 @@ function undo() {
   toast(remaining.length ? '部分路段暫時無法復原，請確認資源與出入口。' : state.roads.some(road => road.pendingRemoval) ? '已復原上一筆道路編輯；灰色路段仍需等待車輛返家。' : '已復原上一筆道路編輯。');
 }
 $('line-mode-btn').onclick = () => { board.setStraight(!board.straight); selectTool('road'); updateUI(); toast(board.straight ? '拖曳預覽，放手鋪路；也可點起點再點終點。' : '自由畫：沿拖曳軌跡鋪路。'); };
+for (const kind of ['motorway', 'signal', 'roundabout']) $(`${kind}-btn`).onclick = () => {
+  selectTool(kind);
+  toast(kind === 'motorway' ? '點兩個不相鄰的陸地格放置高速公路；沿途跨越道路與河流。' : '點三叉以上的陸地路口放置設施；拆除工具可回收。');
+};
 $('road-btn').onclick = () => selectTool('road');
 $('erase-btn').onclick = () => selectTool('erase');
 $('pan-btn').onclick = () => selectTool(tool === 'pan' ? 'road' : 'pan');

@@ -26,9 +26,9 @@ function building(id, type, color, x, y) {
 export function createGame(seed = Date.now()) {
   const normalizedSeed = Number(seed) >>> 0;
   const state = {
-    version: 4, cols: 13, rows: 17, seed: normalizedSeed, rng: normalizedSeed,
+    version: 5, cols: 13, rows: 17, seed: normalizedSeed, rng: normalizedSeed,
     buildings: [building('h1', 'home', 'coral', 2, 3), building('h2', 'home', 'coral', 3, 6), building('d1', 'destination', 'coral', 7, 4), building('h3', 'home', 'teal', 10, 11), building('h4', 'home', 'teal', 7, 14), building('d2', 'destination', 'teal', 3, 12)],
-    roads: [], cars: [], water: [], score: 0, elapsed: 0, week: 1,
+    roads: [], motorways: [], junctions: [], motorwayTiles: 0, signals: 0, roundabouts: 0, cars: [], water: [], score: 0, elapsed: 0, week: 1,
     roadTiles: 24, bridges: 1, status: 'playing', upgradeChoices: ['roads', 'bridge'],
     message: '', nextCarId: 1, nextBuildingId: 7, nextExpansion: 35, dispatchClock: 0,
   };
@@ -38,6 +38,55 @@ export function createGame(seed = Date.now()) {
   addRoad(state, { x: 6, y: 4 }, { x: 7, y: 4 });
   state.message = '';
   return state;
+}
+
+export const UPGRADE_PACKS = {
+  roads: { title: '更多道路', roads: 12, detail: '道路 ×12' },
+  bridge: { title: '橋梁補給', roads: 8, resource: 'bridges', count: 1, detail: '橋梁 ×1 ＋ 道路 ×8' },
+  motorway: { title: '高速公路', roads: 12, resource: 'motorwayTiles', count: 1, detail: '高速公路 ×1 ＋ 道路 ×12' },
+  signal: { title: '紅綠燈', roads: 10, resource: 'signals', count: 2, detail: '紅綠燈 ×2 ＋ 道路 ×10' },
+  roundabout: { title: '圓環', roads: 10, resource: 'roundabouts', count: 1, detail: '圓環 ×1 ＋ 道路 ×10' },
+};
+export function availableUpgrades(state) {
+  return state.week + 1 >= 4 ? Object.keys(UPGRADE_PACKS) : ['roads', 'bridge'];
+}
+const motorwayFor = (state, a, b) => (state.motorways || []).find(road => segmentKey(road.a, road.b) === segmentKey(a, b));
+const allRoads = state => [...state.roads, ...(state.motorways || [])];
+const junctionAt = (state, point) => (state.junctions || []).find(item => same(item, point));
+const axis = (a, b) => Math.abs(a.x - b.x) >= Math.abs(a.y - b.y) ? 0 : 1;
+export const signalPhase = state => Math.floor(state.elapsed / 3) % 2;
+
+export function addMotorway(state, a, b) {
+  if (!inside(state, a) || !inside(state, b) || distance(a, b) <= Math.SQRT2) return { ok: false, reason: '高速公路請連接兩個不相鄰的陸地格' };
+  if ([a, b].some(p => isWater(state, p) || shopAt(state, p))) return { ok: false, reason: '高速公路出入口需在陸地，不能放在商場上' };
+  if (motorwayFor(state, a, b)) return { ok: false, reason: '這兩個出入口已有高速公路' };
+  if (!(state.motorwayTiles > 0)) return { ok: false, reason: '高速公路用完了，可在第 4 週起選擇補給' };
+  state.motorways.push({ a: { ...a }, b: { ...b }, pendingRemoval: false }); state.motorwayTiles--;
+  return { ok: true, changed: true };
+}
+
+export function placeJunction(state, point, kind) {
+  const resource = kind === 'signal' ? 'signals' : kind === 'roundabout' ? 'roundabouts' : null;
+  if (!resource || !inside(state, point) || isWater(state, point) || shopAt(state, point) || state.buildings.some(item => same(item, point))) return { ok: false, reason: '請選擇陸地上的道路分岔口' };
+  if (junctionAt(state, point)) return { ok: false, reason: '這裡已有設施，先用拆除工具回收' };
+  if (allRoads(state).filter(road => !road.pendingRemoval && incident(road, point)).length < 3) return { ok: false, reason: '設施需放在至少三個方向相連的路口' };
+  if (!(state[resource] > 0)) return { ok: false, reason: '設施用完了，請等待每週補給' };
+  state.junctions.push({ x: point.x, y: point.y, kind }); state[resource]--;
+  return { ok: true, changed: true };
+}
+
+export function removeInfrastructure(state, point) {
+  const junction = junctionAt(state, point);
+  if (junction) {
+    if (state.cars.some(car => car.roundabout && same(car.roundabout.center, point))) return { ok: false, reason: '請等環內車輛離開後再拆除圓環' };
+    state.junctions = state.junctions.filter(item => item !== junction);
+    state[junction.kind === 'signal' ? 'signals' : 'roundabouts']++;
+    return { ok: true, changed: true };
+  }
+  const road = (state.motorways || []).find(item => !item.pendingRemoval && incident(item, point));
+  if (!road) return null;
+  road.pendingRemoval = true; finishRoadRemovals(state);
+  return { ok: true, changed: true, pending: state.motorways.includes(road) };
 }
 
 function riverColumn(x) {
@@ -104,6 +153,8 @@ function bridgeReserve(state, roads = state.roads) {
 }
 
 function finishRoadRemovals(state) {
+  const retired = (state.motorways || []).filter(road => road.pendingRemoval && !state.cars.some(car => usesRoad(car, road)));
+  if (retired.length) { state.motorways = state.motorways.filter(road => !retired.includes(road)); state.motorwayTiles += retired.length; }
   const removable = state.roads.filter(road => road.pendingRemoval && !state.cars.some(car => usesRoad(car, road)));
   if (!removable.length) return;
   const remaining = state.roads.filter(road => !removable.includes(road));
@@ -153,13 +204,13 @@ export function removeRoad(state, a, b) {
   return { ok: true, changed: true, pending: state.roads.includes(road) };
 }
 
-/** Shortest physical route; buildings cannot be used as through intersections. */
+/** Fastest route at nominal road speeds; unrelated buildings cannot be shortcuts. */
 export function getRoute(state, fromId, toId) {
   const from = state.buildings.find(item => item.id === fromId);
   const to = state.buildings.find(item => item.id === toId);
   if (!from || !to) return null;
   const graph = new Map();
-  for (const road of [...state.roads, ...parkingLinks(state)]) {
+  for (const road of [...allRoads(state), ...parkingLinks(state)]) {
     if (road.pendingRemoval || shopAt(state, road.a) || shopAt(state, road.b)) continue;
     const a = key(road.a), b = key(road.b);
     if (!graph.has(a)) graph.set(a, []);
@@ -185,7 +236,7 @@ export function getRoute(state, fromId, toId) {
     for (const next of graph.get(currentKey) || []) {
       const nextKey = key(next);
       if (blocked.has(nextKey)) continue;
-      const candidate = distances.get(currentKey) + distance(current, next);
+      const candidate = distances.get(currentKey) + distance(current, next) / (motorwayFor(state, current, next) ? 2 : 1);
       if (candidate < (distances.get(nextKey) ?? Infinity)) {
         distances.set(nextKey, candidate); previous.set(nextKey, current); pending.push(next);
       }
@@ -214,7 +265,7 @@ function vacantCell(state, color, type, home = state.buildings.find(item => item
     const cells = type === 'destination' ? [point, shopCell(point)] : [point];
     if (cells.some(cell => !inside(state, cell) || isWater(state, cell))) continue;
     if (state.buildings.some(item => footprint(item).some(occupied => cells.some(cell => distance(occupied, cell) < 2.1)))) continue;
-    if (state.roads.some(road => cells.some(cell => incident(road, cell)))) continue;
+    if (allRoads(state).some(road => cells.some(cell => incident(road, cell))) || (state.junctions || []).some(item => cells.some(cell => same(item, cell)))) continue;
     // New pairs start on the same bank; bridges remain a routing choice.
     if (bank && !bank.has(key(point))) continue;
     return point;
@@ -245,7 +296,7 @@ function expand(state) {
       const cell = { x: candidate.x + 1, y: candidate.y };
       if (!bank.has(key(cell))) continue;
       const cells = [cell, shopCell(cell)];
-      if (cells.some(p => !inside(state, p) || isWater(state, p) || state.roads.some(road => incident(road, p)))) continue;
+      if (cells.some(p => !inside(state, p) || isWater(state, p) || allRoads(state).some(road => incident(road, p)) || (state.junctions || []).some(item => same(item, p)))) continue;
       if (state.buildings.some(item => item !== candidate && footprint(item).some(occupied => cells.some(p => distance(occupied, p) < 1.6)))) continue;
       target = cell; partner = candidate; break;
     }
@@ -281,7 +332,7 @@ function dispatch(state) {
 function advanceCars(state, dt) {
   const completed = new Set();
   const degree = new Map();
-  for (const road of state.roads) for (const point of [road.a, road.b]) degree.set(key(point), (degree.get(key(point)) || 0) + 1);
+  for (const road of allRoads(state)) for (const point of [road.a, road.b]) degree.set(key(point), (degree.get(key(point)) || 0) + 1);
   const buildings = new Set(state.buildings.map(key));
   for (const car of state.cars) {
     const next = car.route[car.segment + 1];
@@ -289,19 +340,39 @@ function advanceCars(state, dt) {
   }
   for (const car of state.cars) {
     if (car.stopTime > 0) { car.stopTime -= dt; continue; }
-    const movement = 2.3 * dt;
     const start = car.route[car.segment], end = car.route[car.segment + 1];
     if (!start || !end) { completed.add(car.id); continue; }
+    const motorway = motorwayFor(state, start, end);
+    const movement = (motorway ? 4.6 : 2.3) * dt;
+    if (car.roundabout) { advanceRoundabout(car, dt); continue; }
     // Conservative single-car junction reservation. This approximates negotiation;
     // ordinary roads keep two-way traffic, while crossing streams take turns.
     if ((degree.get(key(end)) || 0) > 2 && !buildings.has(key(end)) && distance(car, end) <= 0.6) {
+      const control = junctionAt(state, end);
+      if (!car.junction && control?.kind === 'signal' && axis(start, end) !== signalPhase(state)) {
+        // Empty intersections never stop cars; competing approaches obey the phase.
+        const competing = state.cars.some(other => other.id !== car.id && other.route[other.segment + 1] && same(other.route[other.segment + 1], end) && distance(other, end) < 1.5 && axis(other.route[other.segment], end) !== axis(start, end));
+        if (competing) continue;
+      }
       if (state.cars.some(other => other.id !== car.id && other.junction && same(other.junction, end))) continue;
       car.junction = { ...end };
+      if (control?.kind === 'roundabout' && car.route[car.segment + 2] && distance(car, end) <= 0.4) {
+        const exit = car.route[car.segment + 2];
+        const entryAngle = Math.atan2(start.y - end.y, start.x - end.x);
+        const exitAngle = Math.atan2(exit.y - end.y, exit.x - end.x);
+        const sweep = (exitAngle - entryAngle + Math.PI * 2) % (Math.PI * 2) || Math.PI * 2;
+        car.roundabout = { center: { ...end }, entryAngle, sweep, travelled: 0 };
+        advanceRoundabout(car, dt); continue;
+      }
     }
     const angle = Math.atan2(end.y - start.y, end.x - start.x);
     // Same-direction vehicles keep a visible gap, including shared bottlenecks.
     const blocked = state.cars.some(other => {
       if (other.id === car.id || other.stopTime > 0) return false;
+      const otherStart = other.route[other.segment], otherEnd = other.route[other.segment + 1];
+      const otherMotorway = otherEnd && motorwayFor(state, otherStart, otherEnd);
+      // Elevated crossings do not interact with the roads underneath.
+      if (motorway !== otherMotorway && (motorway || otherMotorway)) return false;
       const ahead = (other.x - car.x) * Math.cos(angle) + (other.y - car.y) * Math.sin(angle);
       const lateral = Math.abs((other.x - car.x) * Math.sin(angle) - (other.y - car.y) * Math.cos(angle));
       return ahead > 0 && ahead < 0.43 && lateral < 0.15 && Math.cos(other.angle - angle) > 0.7;
@@ -326,6 +397,20 @@ function advanceCars(state, dt) {
     }
   }
   state.cars = state.cars.filter(car => !completed.has(car.id));
+}
+
+function advanceRoundabout(car, dt) {
+  const turn = car.roundabout, radius = 0.4;
+  turn.travelled = Math.min(turn.sweep, turn.travelled + 2.3 * dt / radius);
+  const angle = turn.entryAngle + turn.travelled;
+  car.x = turn.center.x + Math.cos(angle) * radius;
+  car.y = turn.center.y + Math.sin(angle) * radius;
+  car.angle = angle + Math.PI / 2;
+  if (turn.travelled >= turn.sweep) {
+    car.segment++;
+    car.progress = radius / distance(car.route[car.segment], car.route[car.segment + 1]);
+    car.roundabout = null;
+  }
 }
 
 function tick(state, dt) {
@@ -358,10 +443,12 @@ export function stepGame(state, dtSeconds) {
 
 export function applyUpgrade(state, kind) {
   if (state.status !== 'upgrade') return { ok: false, reason: '每週結束後才能領取補給' };
-  if (!state.upgradeChoices.includes(kind)) return { ok: false, reason: '請選擇道路或橋梁補給' };
-  state.roadTiles += kind === 'roads' ? 12 : 8;
-  if (kind === 'bridge') state.bridges += 1;
-  state.week++; state.status = 'playing'; state.message = kind === 'roads' ? '收到 12 段道路，繼續建造吧' : '收到 8 段道路與 1 段橋梁';
+  if (!availableUpgrades(state).includes(kind)) return { ok: false, reason: '這項補給尚未開放' };
+  const pack = UPGRADE_PACKS[kind];
+  state.roadTiles += pack.roads;
+  if (pack.resource) state[pack.resource] += pack.count;
+  state.week++; state.status = 'playing'; state.upgradeChoices = availableUpgrades(state);
+  state.message = `收到 ${pack.detail}`;
   return { ok: true };
 }
 
@@ -371,7 +458,9 @@ export function serializeGame(state) { return JSON.stringify(state); }
 export function restoreGame(json) {
   try {
     const state = typeof json === 'string' ? JSON.parse(json) : JSON.parse(JSON.stringify(json));
-    if (!state || ![1, 2, 3, 4].includes(state.version) || !Number.isInteger(state.cols) || !Number.isInteger(state.rows) || state.cols < 13 || state.cols > 29 || state.rows < 17 || state.rows > 33 || !['playing', 'upgrade', 'gameover'].includes(state.status)) return null;
+    if (!state || ![1, 2, 3, 4, 5].includes(state.version) || !Number.isInteger(state.cols) || !Number.isInteger(state.rows) || state.cols < 13 || state.cols > 29 || state.rows < 17 || state.rows > 33 || !['playing', 'upgrade', 'gameover'].includes(state.status)) return null;
+    if (state.version < 5) { state.motorways = []; state.junctions = []; state.motorwayTiles = 0; state.signals = 0; state.roundabouts = 0; }
+    if (!Array.isArray(state.motorways) || !Array.isArray(state.junctions) || state.motorways.length > 100 || state.junctions.length > 957 || ['motorwayTiles', 'signals', 'roundabouts'].some(field => !Number.isInteger(state[field]) || state[field] < 0)) return null;
     if (!Array.isArray(state.buildings) || !Array.isArray(state.roads) || !Array.isArray(state.cars) || !Array.isArray(state.water)) return null;
     if (state.buildings.length < 6 || state.buildings.length > 100 || state.roads.length > 1000 || state.cars.length > 200 || state.water.length > 957) return null;
     for (const field of ['seed', 'rng', 'score', 'elapsed', 'week', 'roadTiles', 'bridges', 'nextCarId', 'nextBuildingId', 'nextExpansion', 'dispatchClock']) if (!Number.isFinite(state[field]) || state[field] < 0) return null;
@@ -385,9 +474,14 @@ export function restoreGame(json) {
       const peers = state.buildings.filter(other => other.parkingId === item.parkingId);
       if (typeof item.parkingId !== 'string' || !item.parkingId || item.type !== 'destination' || peers.length !== 2 || peers.some(peer => peer.type !== 'destination') || peers[0].color === peers[1].color || peers[0].y !== peers[1].y || Math.abs(peers[0].x - peers[1].x) !== 1) return null;
     }
-    const roadKeys = new Set([...state.roads, ...parkingLinks(state)].map(road => segmentKey(road.a, road.b)));
+    if (!state.motorways.every(road => inside(state, road.a) && inside(state, road.b) && distance(road.a, road.b) > Math.SQRT2 && typeof road.pendingRemoval === 'boolean' && ![road.a, road.b].some(p => isWater(state, p) || shopAt(state, p)))) return null;
+    if (new Set(state.motorways.map(road => segmentKey(road.a, road.b))).size !== state.motorways.length) return null;
+    if (!state.junctions.every(item => inside(state, item) && ['signal', 'roundabout'].includes(item.kind) && !isWater(state, item) && !shopAt(state, item) && !state.buildings.some(b => same(b, item)))) return null;
+    if (new Set(state.junctions.map(key)).size !== state.junctions.length) return null;
+    const roadKeys = new Set([...allRoads(state), ...parkingLinks(state)].map(road => segmentKey(road.a, road.b)));
     if (!state.cars.every(car => typeof car.id === 'string' && COLORS.includes(car.color) && ['x', 'y', 'angle', 'progress', 'stopTime'].every(field => Number.isFinite(car[field])) && car.progress >= 0 && car.progress < 1 && car.x >= 0 && car.x < state.cols && car.y >= 0 && car.y < state.rows && typeof car.returning === 'boolean' && Array.isArray(car.route) && car.route.length > 1 && car.route.length <= 957 && car.route.every((point, i) => inside(state, point) && (i === 0 || roadKeys.has(segmentKey(car.route[i - 1], point)))) && Number.isInteger(car.segment) && car.segment >= 0 && car.segment < car.route.length - 1 && state.buildings.some(item => item.id === car.homeId && item.type === 'home' && item.color === car.color) && state.buildings.some(item => item.id === car.destinationId && item.type === 'destination' && item.color === car.color))) return null;
-    if (!Array.isArray(state.upgradeChoices) || state.upgradeChoices.length !== 2 || !state.upgradeChoices.includes('roads') || !state.upgradeChoices.includes('bridge')) return null;
+    state.upgradeChoices = availableUpgrades(state);
+    if (state.cars.some(car => car.roundabout && (!inside(state, car.roundabout.center) || junctionAt(state, car.roundabout.center)?.kind !== 'roundabout' || !same(car.route[car.segment + 1], car.roundabout.center) || !car.route[car.segment + 2] || !['entryAngle', 'sweep', 'travelled'].every(field => Number.isFinite(car.roundabout[field])) || car.roundabout.sweep <= 0 || car.roundabout.sweep > Math.PI * 2 || car.roundabout.travelled < 0 || car.roundabout.travelled > car.roundabout.sweep))) return null;
     if (state.cars.some(car => car.junction != null && !inside(state, car.junction))) return null;
     const originalVersion = state.version;
     if (state.version === 1) {
@@ -422,7 +516,7 @@ export function restoreGame(json) {
     if (state.bridges < 0 || bridgeReserve(state) > state.bridges) return null;
     if (state.water.some(point => state.roads.filter(road => !road.pendingRemoval && crossesWater(state, road, point)).length > 2)) return null;
     if (state.roads.some(road => road.bridge !== (roadWater(state, road).length > 0))) return null;
-    state.version = 4;
+    state.version = 5;
     return state;
   } catch { return null; }
 }

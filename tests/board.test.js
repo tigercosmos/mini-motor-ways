@@ -646,3 +646,25 @@ test('destination danger shows a full track, actual stress percentage, and a per
   board.drawDestination(ctx, { demand: 1, capacity: 6, stress: 0 }, colors, 0);
   assert.ok(!ctx.operations.some(op => op.method === 'arc' && op.args[2] === 0.61));
 });
+
+test('motorway tools connect endpoints once and do not paint ordinary roads', t => {
+  const {board,dispatch,roads}=fixture(t); const calls=[];
+  board.callbacks.onInfrastructure=(...args)=>{calls.push(args);return {ok:true};};
+  board.setTool('motorway');
+  dispatch('pointerdown',{x:0,y:0});dispatch('pointerup',{x:0,y:0});
+  dispatch('pointerdown',{x:4,y:4});dispatch('pointerup',{x:4,y:4});
+  assert.deepEqual(calls,[['motorway',{x:0,y:0},{x:4,y:4}]]);assert.equal(roads.length,0);
+  dispatch('pointerdown',{x:0,y:0});dispatch('pointermove',{x:4,y:4});dispatch('pointercancel',{x:4,y:4});
+  assert.equal(calls.length,1);
+});
+
+test('junction tools only place on a completed tap and erase prioritizes infrastructure', t => {
+  const {board,dispatch,roads,erased}=fixture(t);const calls=[];
+  board.callbacks.onInfrastructure=(...args)=>{calls.push(args);return {ok:true};};
+  board.setTool('signal'); dispatch('pointerdown',{x:4,y:4});dispatch('pointerup',{x:4,y:4});
+  assert.deepEqual(calls,[['signal',{x:4,y:4}]]);
+  board.setTool('roundabout');dispatch('pointerdown',{x:4,y:4});dispatch('pointermove',{x:5,y:4});dispatch('pointerup',{x:5,y:4});
+  assert.equal(calls.length,1);assert.equal(roads.length,0);
+  board.setTool('erase');dispatch('pointerdown',{x:4,y:3});dispatch('pointerup',{x:4,y:3});
+  assert.equal(calls.at(-1)[0],'erase');assert.equal(erased.length,0);
+});

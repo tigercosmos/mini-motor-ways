@@ -1,4 +1,4 @@
-import { shopCell } from './engine.js';
+import { shopCell, signalPhase } from './engine.js';
 
 const COLORS = {
   coral: { main: '#db725e', roof: '#bc594d', light: '#f5b4a0' },
@@ -80,7 +80,7 @@ export class Board {
   }
 
   setTool(tool) {
-    const next = ['erase', 'pan'].includes(tool) ? tool : 'road';
+    const next = ['erase', 'pan', 'motorway', 'signal', 'roundabout'].includes(tool) ? tool : 'road';
     if (next !== this.tool) this.cancelGesture();
     this.tool = next;
     this.canvas.style.cursor = next === 'pan' ? 'grab' : next === 'erase' ? 'cell' : 'crosshair';
@@ -246,7 +246,7 @@ export class Board {
     this.pointer = event.pointerId;
     this.lastCell = cell;
     this.hover = cell;
-    this.origin = this.tool === 'road' && this.straight ? this.lineStart || cell : cell;
+    this.origin = ((this.tool === 'road' && this.straight) || this.tool === 'motorway') ? this.lineStart || cell : cell;
     const start = this.localPoint(event), center = this.cellToPoint(cell);
     this.strokeOffset = { x: start.x - center.x, y: start.y - center.y };
     this.moved = false;
@@ -262,7 +262,7 @@ export class Board {
     if (this.pointer !== null && event.pointerId !== this.pointer) return;
     this.hover = this.tool === 'pan' ? null : cell;
     if (event.pointerId !== this.pointer) return;
-    if (this.tool === 'road' && this.straight) {
+    if ((this.tool === 'road' && this.straight) || ['motorway', 'signal', 'roundabout'].includes(this.tool)) {
       this.lastCell = cell;
       this.moved ||= Boolean(cell && !sameCell(this.origin, cell));
       return;
@@ -318,11 +318,12 @@ export class Board {
     // Touch browsers can deliver a final release position without a matching move.
     if (event.type === 'pointerup') this.onPointerMove(event);
     if (event.pointerId === this.pointer && !this.blockEdit) {
-      if (this.tool === 'road' && this.straight) {
+      if (['signal', 'roundabout'].includes(this.tool) && event.type === 'pointerup' && this.lastCell && !this.moved) this.callbacks.onInfrastructure?.(this.tool, this.lastCell);
+      if ((this.tool === 'road' && this.straight) || this.tool === 'motorway') {
         if (event.type === 'pointerup' && this.lastCell && !sameCell(this.origin, this.lastCell)) {
-          const path = lineCells(this.origin, this.lastCell);
+          const path = this.tool === 'motorway' ? [this.origin, this.lastCell] : lineCells(this.origin, this.lastCell);
           for (let i = 1; i < path.length; i++) {
-            const result = this.callbacks.onRoad?.(path[i - 1], path[i]);
+            const result = this.tool === 'motorway' ? this.callbacks.onInfrastructure?.('motorway', path[i - 1], path[i]) : this.callbacks.onRoad?.(path[i - 1], path[i]);
             if (result?.ok === false) { this.callbacks.onMessage?.(result.reason); break; }
           }
           this.lineStart = null;
@@ -333,7 +334,8 @@ export class Board {
       if (this.tool === 'erase' && !this.moved && this.lastCell && event.type === 'pointerup') {
         const roads = this.state?.roads || [];
         const road = roads.find(entry => !entry.pendingRemoval && (sameCell(entry.a, this.lastCell) || sameCell(entry.b, this.lastCell)));
-        if (road) this.callbacks.onErase?.(road.a, road.b);
+        const removed = this.callbacks.onInfrastructure?.('erase', this.lastCell);
+        if (!removed && road) this.callbacks.onErase?.(road.a, road.b);
       }
       this.finishEdit();
     }
@@ -376,6 +378,7 @@ export class Board {
     this.drawGrid(ctx);
     this.drawTrees(ctx);
     this.drawRoads(ctx);
+    this.drawInfrastructure(ctx);
     this.drawBuildings(ctx, time);
     this.drawCars(ctx);
     this.drawPointer(ctx, time);
@@ -519,6 +522,39 @@ export class Board {
     ctx.setLineDash([0.09, 0.12]);
     drawSegments();
     ctx.setLineDash([]);
+  }
+
+  drawInfrastructure(ctx) {
+    for (const [index, road] of (this.state.motorways || []).entries()) {
+      ctx.save(); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(road.a.x + 0.5, road.a.y + 0.5); ctx.lineTo(road.b.x + 0.5, road.b.y + 0.5);
+      ctx.strokeStyle = '#fff9eb'; ctx.lineWidth = 0.55; ctx.stroke();
+      ctx.strokeStyle = road.pendingRemoval ? '#9da49b' : '#597dac'; ctx.lineWidth = 0.32;
+      if (road.pendingRemoval) ctx.setLineDash([0.15, 0.12]);
+      ctx.stroke(); ctx.setLineDash([]);
+      for (const point of [road.a, road.b]) {
+        ctx.beginPath(); ctx.arc(point.x + 0.5, point.y + 0.5, 0.23, 0, Math.PI * 2); ctx.fillStyle = '#597dac'; ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = '700 0.27px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(index + 1), point.x + 0.5, point.y + 0.5);
+      }
+      ctx.restore();
+    }
+    for (const item of this.state.junctions || []) {
+      ctx.save(); ctx.translate(item.x + 0.5, item.y + 0.5);
+      if (item.kind === 'roundabout') {
+        ctx.beginPath(); ctx.arc(0, 0, 0.4, 0, Math.PI * 2); ctx.strokeStyle = '#fff9eb'; ctx.lineWidth = 0.38; ctx.stroke();
+        ctx.strokeStyle = '#6d7974'; ctx.lineWidth = 0.25; ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, 0, 0.23, 0, Math.PI * 2); ctx.fillStyle = '#a2b98b'; ctx.fill();
+        ctx.fillStyle = '#fff9eb'; ctx.font = '0.35px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('↻', 0, 0);
+      } else {
+        ctx.fillStyle = '#30483d'; roundedRect(ctx, 0.15, -0.45, 0.34, 0.61, 0.08); ctx.fill();
+        for (let i = 0; i < 2; i++) {
+          ctx.beginPath(); ctx.arc(0.32, -0.29 + i * 0.27, 0.095, 0, Math.PI * 2);
+          ctx.fillStyle = signalPhase(this.state) === i ? '#81d28d' : '#d36657'; ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
   }
 
   drawBuildings(ctx, time) {
@@ -684,7 +720,7 @@ export class Board {
       const color = COLORS[car.color] || COLORS.coral;
       const angle = car.angle || 0;
       // Display opposing traffic in separate right-hand lanes; simulation stays in grid coordinates.
-      const lane = 0.085;
+      const lane = car.roundabout ? 0 : 0.085;
       ctx.save();
       ctx.translate(car.x + 0.5 - Math.sin(angle) * lane, car.y + 0.5 + Math.cos(angle) * lane);
       ctx.rotate(angle);
@@ -705,10 +741,10 @@ export class Board {
 
   drawPointer(ctx, time) {
     const start = this.origin || this.lineStart;
-    if (this.tool === 'road' && this.straight && start) {
+    if (((this.tool === 'road' && this.straight) || this.tool === 'motorway') && start) {
       ctx.save();
       ctx.strokeStyle = '#477d72'; ctx.lineWidth = 0.18; ctx.setLineDash([0.16, 0.1]);
-      const path = lineCells(start, this.hover || start);
+      const path = this.tool === 'motorway' ? [start, this.hover || start] : lineCells(start, this.hover || start);
       ctx.beginPath(); ctx.moveTo(start.x + 0.5, start.y + 0.5);
       for (const point of path.slice(1)) ctx.lineTo(point.x + 0.5, point.y + 0.5);
       ctx.stroke(); ctx.setLineDash([]);

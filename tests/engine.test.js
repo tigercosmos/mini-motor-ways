@@ -158,7 +158,7 @@ test('version one saves migrate capacity and refund excess per-water-cell bridge
   game.version = 1; game.bridges = 0;
   game.buildings.forEach(item => { item.capacity = 7; }); game.roads.forEach(road => { delete road.pendingRemoval; });
   const migrated = restoreGame(serializeGame(game));
-  assert.ok(migrated); assert.equal(migrated.version, 4); assert.equal(migrated.bridges, 1);
+  assert.ok(migrated); assert.equal(migrated.version, 5); assert.equal(migrated.bridges, 1);
   assert.ok(migrated.buildings.every(item => item.capacity === 6));
 });
 
@@ -326,7 +326,7 @@ test('old saves relocate shops away from existing roads without changing trips o
     { a: { x: 7, y: 3 }, b: { x: 7, y: 4 }, bridge: false, pendingRemoval: false });
   const restored = restoreGame(serializeGame(game));
   assert.ok(restored);
-  assert.equal(restored.version, 4);
+  assert.equal(restored.version, 5);
   assert.equal(restored.buildings.find(item => item.id === 'd1').shopSide, 'south');
   assert.deepEqual(restored.roads, game.roads);
   assert.equal(restored.roadTiles, game.roadTiles);
@@ -397,7 +397,7 @@ test('legacy shoreline bridge charges are refunded exactly once on restore', () 
   game.roadTiles--; game.bridges--;
   const restored = restoreGame(serializeGame(game));
   assert.ok(restored);
-  assert.equal(restored.version, 4);
+  assert.equal(restored.version, 5);
   assert.equal(restored.bridges, 1);
   assert.equal(restored.roads.at(-1).bridge, false);
   assert.equal(restored.roadTiles, game.roadTiles);

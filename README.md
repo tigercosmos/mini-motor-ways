@@ -27,7 +27,9 @@ The server listens on all network interfaces. Allow local network access if your
 5. Use the eraser to remove roads. Busy roads turn gray until their cars return home; resources remain reserved until clearance.
 6. Pause to plan. Switch to 2× speed to advance time faster.
 7. Keep destination demand under control. A full stress ring ends the game.
-8. Every 60 game seconds, choose 12 roads or 8 roads and one bridge.
+8. Every 60 game seconds, choose exactly one supply package. The first two offers contain 12 roads or 8 roads and one bridge. Starting with the offer for week 4, you can also choose one motorway and 12 roads, two traffic lights and 10 roads, or one roundabout and 10 roads.
+
+From week 4, the facility buttons show available inventory. Select the motorway tool and tap two nonadjacent land cells to connect them. Motorways cross roads and water without ground-level junctions or bridge costs, and cars travel at twice the normal speed. Route selection accounts for that speed. Select traffic lights or a roundabout and tap a land junction with at least three connections. Lights switch the preferred approach every three game seconds, but an empty junction does not stop a lone car. Roundabouts carry cars around a circular lane and give circulating traffic priority. Use the eraser to tap a facility or motorway endpoint to reclaim it. Busy motorways wait for reserved trips to return home; roundabouts cannot be removed while occupied. Facility edits clear road undo history.
 
 New destinations play a short three-note chime. Sound starts enabled and is unlocked when you start playing. The sound button mutes effects and saves that preference in this browser. Existing destinations do not replay their chime when you resume a save.
 
